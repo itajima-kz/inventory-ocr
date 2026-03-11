@@ -168,7 +168,12 @@ document.getElementById("status").innerText=t
 async function startCamera(){
 
 stream=await navigator.mediaDevices.getUserMedia({
-video:{facingMode:"environment"}
+/*video:{facingMode:"environment"}*/
+video:{
+facingMode:"environment",
+width:{ideal:1920},
+height:{ideal:1080}
+}
 })
 
 video.srcObject=stream
@@ -239,7 +244,8 @@ for(let i=0;i<d.length;i+=4){
 
 const gray=(d[i]+d[i+1]+d[i+2])/3
 
-const contrast=gray>120?255:0
+/*const contrast=gray>120?255:0*/
+const contrast=(gray-128)*1.8+128
 
 d[i]=contrast
 d[i+1]=contrast
