@@ -1,388 +1,237 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>棚OCR</title>
-
+<title>棚卸OCR</title>
 <style>
-
 body{
-font-family:sans-serif;
-background:#eef1ff;
-padding:20px;
+  font-family:sans-serif; background:#eef1ff; padding:20px;
 }
-
 .container{
-max-width:600px;
-margin:auto;
-background:white;
-padding:20px;
-border-radius:14px;
-box-shadow:0 12px 35px rgba(0,0,0,0.2);
-transition:.4s;
+  max-width:600px; margin:auto; background:white; padding:20px; border-radius:14px;
+  box-shadow:0 12px 35px rgba(0,0,0,0.2); transition:.4s;
 }
-
 .successFlash{
-background:#d4ffd8;
+  background:#d4ffd8;
 }
-
 h2{
-text-align:center;
+  text-align:center;
 }
-
 .cameraBox{
-position:relative;
-width:100%;
-height:300px;
-overflow:hidden;
-border-radius:10px;
-margin-bottom:10px;
+  position:relative; width:100%; height:300px; overflow:hidden; border-radius:10px; margin-bottom:10px;
 }
-
 video{
-width:100%;
-height:100%;
-object-fit:cover;
+  width:100%; height:100%; object-fit:cover;
 }
-
 .ocrGuide{
-position:absolute;
-border:3px solid #00ff88;
-width:70%;
-height:35%;
-top:32%;
-left:15%;
-border-radius:8px;
-box-shadow:0 0 10px #00ff88;
+  position:absolute; border:3px solid #00ff88; width:70%; height:35%; top:32%; left:15%;
+  border-radius:8px; box-shadow:0 0 10px #00ff88;
 }
 
 /* 図番大表示 */
-
 .bigPart{
-font-size:48px;
-font-weight:bold;
-text-align:center;
-margin:15px 0;
-background:#000;
-color:#00ff88;
-padding:8px;
-border-radius:8px;
+  font-size:48px; font-weight:bold; text-align:center; margin:15px 0; background:#000; color:#00ff88;
+  padding:8px; border-radius:8px;
 }
-
 button{
-width:100%;
-padding:16px;
-margin-top:12px;
-font-size:18px;
-border:none;
-border-radius:10px;
-color:white;
-cursor:pointer;
-transition:.15s;
-box-shadow:0 5px 12px rgba(0,0,0,.2);
+  width:100%; padding:16px; margin-top:12px; font-size:18px; border:none; border-radius:10px;
+  color:white; cursor:pointer; transition:.15s; box-shadow:0 5px 12px rgba(0,0,0,.2);
 }
-
 button:active{
-transform:scale(.95);
+  transform:scale(.95);
 }
-
 .btnCamera{
-background:linear-gradient(135deg,#00b09b,#96c93d);
+  background:linear-gradient(135deg,#00b09b,#96c93d);
 }
-
 .btnSave{
-background:linear-gradient(135deg,#ff8008,#ffc837);
+  background:linear-gradient(135deg,#ff8008,#ffc837);
 }
-
 .btnRescan{
-background:linear-gradient(135deg,#396afc,#2948ff);
+  background:linear-gradient(135deg,#396afc,#2948ff);
 }
-
 .info{
-margin-top:10px;
-font-size:18px;
+  margin-top:10px; font-size:18px;
 }
-
 .qtyBox{
-width:40%;
-margin-top:10px;
+  width:40%; margin-top:10px;
 }
-
 input{
-width:100%;
-padding:14px;
-font-size:20px;
-border-radius:8px;
-border:1px solid #ccc;
+  width:100%; padding:14px; font-size:20px; border-radius:8px; border:1px solid #ccc;
 }
-
 .status{
-margin-top:10px;
-font-size:14px;
-text-align:center;
-color:#666;
+  mrgin-top:10px; font-size:14px; text-align:center; color:#666;
 }
-
 .successMsg{
-font-size:20px;
-text-align:center;
-color:#2c8a2c;
-margin-top:10px;
-font-weight:bold;
+  font-size:20px; text-align:center; color:#2c8a2c; margin-top:10px; font-weight:bold;
 }
-
 </style>
-
 </head>
 
 <body>
-
 <div class="container" id="container">
-
-<h2>棚OCR</h2>
-
+<h2>棚卸OCR</h2>
 <div class="cameraBox">
-
 <video id="video" autoplay playsinline></video>
 <div class="ocrGuide" id="guide"></div>
-
 </div>
-
 <button class="btnCamera" onclick="startCamera()">📷 カメラ起動</button>
-
 <div class="bigPart" id="bigPart">----</div>
-
 <div class="info">品名: <span id="name"></span></div>
 <div class="info">サイズ: <span id="size"></span></div>
-
 <div class="qtyBox">
 <input id="qty" placeholder="数量">
 </div>
-
 <button class="btnSave" onclick="save()">📦 登録</button>
-
 <button class="btnRescan" onclick="restartScan()">🔄 再スキャン</button>
-
 <div class="successMsg" id="successMsg"></div>
-
 <div class="status" id="status"></div>
-
 </div>
-
 <script>
-
 const API="https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
-
 let video=document.getElementById("video")
-
 let stream
-
 let part,name,size
-
 let scanning=false
-
 let timer
-
 function status(t){
-document.getElementById("status").innerText=t
+  document.getElementById("status").innerText=t
 }
 
 /* カメラ */
-
 async function startCamera(){
-
-stream=await navigator.mediaDevices.getUserMedia({
-video:{facingMode:"environment"}
-})
-
-video.srcObject=stream
-
-status("カメラ起動")
-
-startAutoScan()
-
+  stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:"environment"}
+  })
+  video.srcObject=stream
+  status("カメラ起動")
+  startAutoScan()
 }
 
 /* 自動OCR */
-
 function startAutoScan(){
-
-timer=setInterval(()=>{
-if(!scanning){
-scan()
-}
-},1500)
-
+  timer=setInterval(()=>{
+    if(!scanning){
+      scan()
+    }
+  },1500)
 }
 
 /* OCR */
-
 async function scan(){
+  if(!video.videoWidth)return
+  scanning=true
+  status("OCR解析中")
+  const canvas=document.createElement("canvas")
+  canvas.width=video.videoWidth
+  canvas.height=video.videoHeight
+  const ctx=canvas.getContext("2d")
+  ctx.drawImage(video,0,0)
 
-if(!video.videoWidth)return
+  /* ガイド枠座標取得 */
+  const guide=document.getElementById("guide")
+  const rect=guide.getBoundingClientRect()
+  const vrect=video.getBoundingClientRect()
+  const scaleX=video.videoWidth/vrect.width
+  const scaleY=video.videoHeight/vrect.height
+  const sx=(rect.left-vrect.left)*scaleX
+  const sy=(rect.top-vrect.top)*scaleY
+  const sw=rect.width*scaleX
+  const sh=rect.height*scaleY
 
-scanning=true
+  /* 切り出し */
+  const crop=document.createElement("canvas")
+  crop.width=sw
+  crop.height=sh
+  crop.getContext("2d").drawImage(
+    canvas,
+    sx,sy,sw,sh,
+    0,0,sw,sh
+  )
 
-status("OCR解析中")
+  const base64=crop
+  .toDataURL("image/jpeg",0.9)
+  .replace(/^data:image\/jpeg;base64,/,"")
 
-const canvas=document.createElement("canvas")
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
-
-const ctx=canvas.getContext("2d")
-
-ctx.drawImage(video,0,0)
-
-/* ガイド枠座標取得 */
-
-const guide=document.getElementById("guide")
-const rect=guide.getBoundingClientRect()
-const vrect=video.getBoundingClientRect()
-
-const scaleX=video.videoWidth/vrect.width
-const scaleY=video.videoHeight/vrect.height
-
-const sx=(rect.left-vrect.left)*scaleX
-const sy=(rect.top-vrect.top)*scaleY
-const sw=rect.width*scaleX
-const sh=rect.height*scaleY
-
-/* 切り出し */
-
-const crop=document.createElement("canvas")
-crop.width=sw
-crop.height=sh
-
-crop.getContext("2d").drawImage(
-canvas,
-sx,sy,sw,sh,
-0,0,sw,sh
-)
-
-const base64=crop
-.toDataURL("image/jpeg",0.9)
-.replace(/^data:image\/jpeg;base64,/,"")
-
-const res=await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"ocr",
-image:base64
+  const res=await fetch(API,{
+  method:"POST",
+  body:JSON.stringify({
+  type:"ocr",
+  image:base64
+  })
 })
-})
-
 const data=await res.json()
-
 if(data.found){
-
-stopCamera()
-
-search(data.part)
-
+  stopCamera()
+  search(data.part)
 }
-
 scanning=false
-
 }
 
 /* カメラ停止 */
-
 function stopCamera(){
-
-clearInterval(timer)
-
-if(stream){
-stream.getTracks().forEach(t=>t.stop())
-}
-
-video.pause()
-
+  clearInterval(timer)
+  if(stream){
+    stream.getTracks().forEach(t=>t.stop())
+  }
+  video.pause()
 }
 
 /* 再スキャン */
-
 function restartScan(){
-
-document.getElementById("bigPart").innerText="----"
-document.getElementById("name").innerText=""
-document.getElementById("size").innerText=""
-
-startCamera()
-
+  document.getElementById("bigPart").innerText="----"
+  document.getElementById("name").innerText=""
+  document.getElementById("size").innerText=""
+  startCamera()
 }
 
 /* 図番検索 */
-
 async function search(code){
-
-status("図番検索")
-
-const res=await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"search",
-part:code
-})
-})
-
-const data=await res.json()
-
-if(!data.found){
-status("図番未登録")
-return
-}
-
-part=data.part
-name=data.name
-size=data.size
-
-document.getElementById("bigPart").innerText=part
-document.getElementById("name").innerText=name
-document.getElementById("size").innerText=size
-
-status("図番取得")
-
+  status("図番検索")
+  const res=await fetch(API,{
+    method:"POST",
+    body:JSON.stringify({
+      type:"search",
+      part:code
+    })
+  })
+  const data=await res.json()
+  if(!data.found){
+    status("図番未登録")
+    return
+  }
+  part=data.part
+  name=data.name
+  size=data.size
+  document.getElementById("bigPart").innerText=part
+  document.getElementById("name").innerText=name
+  document.getElementById("size").innerText=size
+  status("図番取得")
 }
 
 /* 登録 */
-
 async function save(){
-
-const qty=document.getElementById("qty").value
-
-status("登録中")
-
-await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"save",
-part:part,
-name:name,
-size:size,
-qty:qty
-})
-})
-
-status("")
-
-document.getElementById("successMsg").innerText="✓ 登録完了"
-
-const c=document.getElementById("container")
-
-c.classList.add("successFlash")
-
-setTimeout(()=>{
-c.classList.remove("successFlash")
-document.getElementById("successMsg").innerText=""
-},1500)
-
-document.getElementById("qty").value=""
-
+  const qty=document.getElementById("qty").value
+  status("登録中")
+  await fetch(API,{
+    method:"POST",
+    body:JSON.stringify({
+      type:"save",
+      part:part,
+      name:name,
+      size:size,
+      qty:qty
+    })
+  })
+  status("")
+  document.getElementById("successMsg").innerText="✓ 登録完了"
+  const c=document.getElementById("container")
+  c.classList.add("successFlash")
+  setTimeout(()=>{
+    c.classList.remove("successFlash")
+    document.getElementById("successMsg").innerText=""
+  },1500)
+  document.getElementById("qty").value=""
 }
-
 </script>
-
 </body>
 </html>
