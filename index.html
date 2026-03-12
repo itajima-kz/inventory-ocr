@@ -270,9 +270,11 @@ image:base64
 const data=await res.json()
 console.log(data)
 
-if(data.text){
+/*if(data.text){*/
+if(data.part){
 
-const partCode=extractPart(data.text)
+/*const partCode=extractPart(data.text)*/
+const partCode=extractPart(data.part)
 
 if(partCode){
 
