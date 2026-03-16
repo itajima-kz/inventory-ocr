@@ -38,7 +38,7 @@ h2 {
 .camera-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 16/9;
+  aspect-ratio: 9/16;
   border-radius: 12px;
   overflow: hidden;
   background: #111;
@@ -47,13 +47,8 @@ h2 {
 video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
-  transform-origin: center center;
-}
-/* iOS縦持ち時：映像を90度回転して横表示に補正 */
-video.rotate90 {
-  transform: rotate(90deg) scale(1.778);
 }
 /* ガイド枠 */
 .guide {
@@ -277,7 +272,6 @@ const API = "https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyet
 let mediaStream   = null;
 let scanTimer     = null;
 let isScanning    = false;   // API呼び出し中フラグ（詰まり防止）
-let isVideoRotated = false;  // iOS縦持ち時の回転フラグ
 let currentPart  = null;
 let currentName  = "";
 let currentSize  = "";
@@ -309,27 +303,19 @@ async function startCamera() {
 
     mediaStream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: "environment",  // 背面カメラ
-        width:  { ideal: 1920 },
-        height: { ideal: 1080 }
+        facingMode: "environment",
+        width:  { ideal: 1080 },   // 縦持ち：短辺
+        height: { ideal: 1920 }    // 縦持ち：長辺
       }
     });
 
     video.srcObject = mediaStream;
     await video.play();
 
-    // iOSで縦持ち時に映像が90度回転して届く問題を補正
-    // videoWidth < videoHeight なら縦動画 → 回転が必要
-    await new Promise(r => setTimeout(r, 300)); // メタデータ確定待ち
-    checkVideoRotation();
-
     setStatus("スキャン中... ガイド枠内に図番を合わせてください", "info");
     btnCamera.style.display  = "none";
     btnRescan.style.display  = "none";
     guide.classList.remove("scanning");
-
-    // 向き変更時に再チェック
-    window.addEventListener("orientationchange", onOrientationChange);
 
     startAutoScan();
 
@@ -337,30 +323,6 @@ async function startCamera() {
     setStatus("カメラ起動失敗: " + err.message, "err");
     btnCamera.disabled = false;
   }
-}
-
-// ====================================================
-//  映像回転検出・補正
-//  iOSは縦持ちでも videoWidth > videoHeight（横向き出力）の場合と
-//  videoWidth < videoHeight（縦向き出力）の場合がある
-//  → 実際の縦横比で判断して rotate90 クラスを付け外し
-// ====================================================
-function checkVideoRotation() {
-  if (!video.videoWidth || !video.videoHeight) return;
-  const isPortraitVideo = video.videoWidth < video.videoHeight;
-  if (isPortraitVideo) {
-    video.classList.add("rotate90");
-    isVideoRotated = true;
-  } else {
-    video.classList.remove("rotate90");
-    isVideoRotated = false;
-  }
-}
-
-async function onOrientationChange() {
-  // 向き変更後、新しいストリームの映像サイズが確定するまで少し待つ
-  await new Promise(r => setTimeout(r, 500));
-  checkVideoRotation();
 }
 
 // ====================================================
@@ -418,110 +380,67 @@ async function doScan() {
 }
 
 // ====================================================
-//  ガイド枠内の画像をキャプチャ（iOS回転対応版）
+//  ガイド枠内の画像をキャプチャ
+//  object-fit:cover 版（縦持ちスマホ前提）
 //
-//  通常（横動画）: vw=1920, vh=1080
-//    → object-fit:contain で横黒帯なし、上下に黒帯
-//  iOS縦持ち（縦動画）: vw=1080, vh=1920
-//    → CSS rotate90で見た目を補正しているが
-//      動画ピクセル自体は縦のまま
-//    → 切り出し座標もその縦ピクセル空間で計算が必要
+//  cover = 動画を枠いっぱいに拡大して中央配置（はみ出す部分は非表示）
+//  → 枠の中心と動画の中心が一致するので
+//    はみ出し量(offset)を計算してから動画ピクセル座標に変換する
 // ====================================================
 function captureGuideArea() {
   if (!video.videoWidth || !video.videoHeight) return null;
 
-  // 動画の実ピクセルサイズ（回転前の生データ）
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
+  const vw = video.videoWidth;   // 動画の実ピクセル幅（縦持ち時 = 短辺）
+  const vh = video.videoHeight;  // 動画の実ピクセル高さ（縦持ち時 = 長辺）
 
-  const vrect = video.getBoundingClientRect();  // video要素の表示サイズ
+  const vrect = video.getBoundingClientRect();
   const dispW = vrect.width;
   const dispH = vrect.height;
 
-  const grect = guide.getBoundingClientRect();  // ガイド枠の表示位置
+  // object-fit:cover のスケール計算
+  // 枠を完全に埋める → 縦横で「大きい方」のスケールを使う
+  const scaleW = dispW / vw;
+  const scaleH = dispH / vh;
+  const scale  = Math.max(scaleW, scaleH);
+
+  // 動画が枠からはみ出す量（中央配置なので半分ずつ）
+  const overX = (vw * scale - dispW) / 2;  // 左右のはみ出し量
+  const overY = (vh * scale - dispH) / 2;  // 上下のはみ出し量
+
+  // ガイド枠の表示座標（video要素左上基準）
+  const grect = guide.getBoundingClientRect();
   const gLeft = grect.left - vrect.left;
   const gTop  = grect.top  - vrect.top;
-  const gW    = grect.width;
-  const gH    = grect.height;
 
-  let csx, csy, csw, csh;
+  // 表示座標 + はみ出し量 → 動画ピクセル座標（スケールで割る）
+  const sx = (gLeft + overX) / scale;
+  const sy = (gTop  + overY) / scale;
+  const sw = grect.width  / scale;
+  const sh = grect.height / scale;
 
-  if (!isVideoRotated) {
-    // ---- 通常（横動画）----
-    // object-fit:contain: 幅か高さの小さい方でスケール
-    const scale = Math.min(dispW / vw, dispH / vh);
-    const padX  = (dispW - vw * scale) / 2;
-    const padY  = (dispH - vh * scale) / 2;
-
-    csx = Math.max(0, Math.round((gLeft - padX) / scale));
-    csy = Math.max(0, Math.round((gTop  - padY) / scale));
-    csw = Math.min(vw - csx, Math.round(gW / scale));
-    csh = Math.min(vh - csy, Math.round(gH / scale));
-
-  } else {
-    // ---- iOS縦持ち（縦動画 + CSS rotate90補正済み）----
-    // CSSでrotate(90deg)scale(1.778)しているため、
-    // 表示上は横向きに見えるが動画ピクセルは縦のまま
-    //
-    // scale(1.778) = 16/9 = 縦映像を横枠に合わせる倍率
-    // 表示座標 → 動画ピクセル座標の変換：
-    //   ・表示のX方向 = 動画ピクセルのY方向（90度回転のため）
-    //   ・表示のY方向 = 動画ピクセルのX方向
-    //
-    // object-fit:contain + rotate90 の場合:
-    //   scaleで考えると表示高さ基準（横幅=動画高さ方向）
-    const scale = dispW / vh;  // 表示幅 / 動画高さ（回転後の対応辺）
-    const padX  = (dispW  - vh * scale) / 2;  // ≒ 0（ぴったりのはず）
-    const padY  = (dispH - vw * scale) / 2;   // 上下の黒帯
-
-    // 表示上のX→動画ピクセルY、表示上のY→動画ピクセルX
-    const vPixY_left = Math.round((gLeft - padX) / scale);   // 動画Y方向の開始
-    const vPixX_top  = Math.round((gTop  - padY) / scale);   // 動画X方向の開始
-    const vPixY_w    = Math.round(gW / scale);                // 動画Y方向の幅
-    const vPixX_h    = Math.round(gH / scale);                // 動画X方向の高さ
-
-    // 動画ピクセル座標（縦動画: vw=短辺, vh=長辺）でクランプ
-    csx = Math.max(0, Math.min(vw - 1, vPixX_top));
-    csy = Math.max(0, Math.min(vh - 1, vPixY_left));
-    csw = Math.min(vw - csx, vPixX_h);
-    csh = Math.min(vh - csy, vPixY_w);
-  }
-
+  // クランプ
+  const csx = Math.max(0, Math.round(sx));
+  const csy = Math.max(0, Math.round(sy));
+  const csw = Math.min(vw - csx, Math.round(sw));
+  const csh = Math.min(vh - csy, Math.round(sh));
   if (csw <= 10 || csh <= 10) return null;
 
-  // 切り出し（動画ピクセル空間で正確に切り出し）
+  // 切り出し
   const crop = document.createElement("canvas");
+  crop.width  = csw;
+  crop.height = csh;
+  const ctx = crop.getContext("2d");
+  ctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
 
-  if (!isVideoRotated) {
-    // 通常：そのまま切り出し
-    crop.width  = csw;
-    crop.height = csh;
-    const ctx = crop.getContext("2d");
-    ctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
-    enhanceImage(ctx, csw, csh);
-  } else {
-    // iOS縦持ち：縦ピクセルで切り出してから90度回転して横に戻す
-    const tmp = document.createElement("canvas");
-    tmp.width  = csw;
-    tmp.height = csh;
-    tmp.getContext("2d").drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
+  // 画像前処理
+  enhanceImage(ctx, csw, csh);
 
-    // 90度回転して保存（Vision APIに正立した画像を送る）
-    crop.width  = csh;  // 回転後: 幅と高さが入れ替わる
-    crop.height = csw;
-    const rctx = crop.getContext("2d");
-    rctx.translate(csh, 0);
-    rctx.rotate(Math.PI / 2);
-    rctx.drawImage(tmp, 0, 0);
-    enhanceImage(rctx, csh, csw);
-  }
-
-  // デバッグ：切り出し確認プレビュー
-  const dbg = document.getElementById("debugCanvas");
+  // デバッグプレビュー
+  const dbg     = document.getElementById("debugCanvas");
   const dbgArea = document.getElementById("debugArea");
   if (dbg) {
-    dbg.width  = crop.width;
-    dbg.height = crop.height;
+    dbg.width  = csw;
+    dbg.height = csh;
     dbg.getContext("2d").drawImage(crop, 0, 0);
     dbgArea.style.display = "block";
   }
@@ -662,8 +581,6 @@ function stopCamera() {
   }
   video.pause();
   video.srcObject = null;
-  video.classList.remove("rotate90");
-  window.removeEventListener("orientationchange", onOrientationChange);
 }
 
 // ====================================================
