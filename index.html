@@ -423,7 +423,7 @@ async function doScan() {
         setStatus("図番候補: " + data.part + "　確認中...", "info");
       }
     } else {
-      same      sameCount = 0;
+      sameCount = 0;
       if (data.rawText && data.rawText.trim()) {
         var rv = data.rawText.replace(/\n/g, " ").trim();
         setStatus("OCR生テキスト: [" + rv.substring(0, 80) + "]", "err");
