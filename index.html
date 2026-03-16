@@ -73,6 +73,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   <button class="btn-save"   id="btnSave"   onclick="save()"        disabled>📦 登録</button>
   <button class="btn-rescan" id="btnRescan" onclick="restartScan()" style="display:none">🔄 再スキャン</button>
   <div class="status-bar" id="statusBar">カメラを起動してください</div>
+  <!-- 診断表示エリア（解決後に削除） -->
+  <div id="diagArea" style="display:none;margin-top:6px;padding:8px;background:#fff3cd;border-radius:6px;font-size:11px;color:#333;word-break:break-all;line-height:1.6"></div>
   <div class="success-msg" id="successMsg"></div>
   <div class="history" id="history" style="display:none">
     <h3>登録履歴（今回分）</h3>
@@ -82,7 +84,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 <script>
 // ★ デプロイURLをここに貼る
-var API = "https://script.google.com/macros/s/AKfycbx4P361Gxq_EZy8kCDi5bvvMNTslSJqfzXm4W6Vj96x8aCipAzd6US4Bg7f56MgYbhx/exec";
+var API = "https://script.google.com/macros/s/AKfycbzeh9dQ1pK03mqOsuBCN-Na5AOeiiV1eOLpj7WAWW7YlyoTQE4euRIf5c_ImijbHllE/exec";
 
 var mediaStream   = null;
 var scanTimer     = null;
@@ -207,6 +209,11 @@ function doScan() {
           stopCamera();
         } else {
           setStatus("テキスト未読取 — 明るい場所でガイド枠に図番を合わせてください");
+        if (data.diag) {
+          var da = document.getElementById("diagArea");
+          da.style.display = "block";
+          da.innerHTML = "【診断】" + (data.diag.diagText || JSON.stringify(data.diag));
+        }
         }
       }
     })
