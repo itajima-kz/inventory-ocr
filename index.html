@@ -2,10 +2,9 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>棚卸OCR</title>
+<title>棚卸OCR（高速版）</title>
 
 <style>
-
 body{
 font-family:sans-serif;
 background:#eef1ff;
@@ -19,14 +18,7 @@ background:white;
 padding:20px;
 border-radius:14px;
 box-shadow:0 12px 35px rgba(0,0,0,0.2);
-transition:.4s;
 }
-
-.successFlash{
-background:#d4ffd8;
-}
-
-h2{text-align:center;}
 
 .cameraBox{
 position:relative;
@@ -34,7 +26,6 @@ width:100%;
 height:300px;
 overflow:hidden;
 border-radius:10px;
-margin-bottom:10px;
 }
 
 video{
@@ -43,15 +34,15 @@ height:100%;
 object-fit:cover;
 }
 
+/* OCR範囲最適化 */
 .ocrGuide{
 position:absolute;
 border:3px solid #00ff88;
-width:80%;
-height:35%;
-top:32%;
-left:10%;
+width:70%;
+height:20%;
+top:40%;
+left:15%;
 border-radius:8px;
-box-shadow:0 0 10px #00ff88;
 }
 
 .bigPart{
@@ -68,157 +59,122 @@ border-radius:8px;
 button{
 width:100%;
 padding:16px;
-margin-top:12px;
+margin-top:10px;
 font-size:18px;
 border:none;
 border-radius:10px;
 color:white;
 cursor:pointer;
-transition:.15s;
-box-shadow:0 5px 12px rgba(0,0,0,.2);
 }
 
-button:active{
-transform:scale(.95);
-}
-
-.btnCamera{background:linear-gradient(135deg,#00b09b,#96c93d);}
-.btnSave{background:linear-gradient(135deg,#ff8008,#ffc837);}
-.btnRescan{background:linear-gradient(135deg,#396afc,#2948ff);}
-
-.info{margin-top:10px;font-size:18px;}
-
-.qtyBox{
-width:40%;
-margin-top:10px;
-}
-
-input{
-width:100%;
-padding:14px;
-font-size:20px;
-border-radius:8px;
-border:1px solid #ccc;
-}
-
-.status{
-margin-top:10px;
-font-size:14px;
-text-align:center;
-color:#666;
-}
-
-.successMsg{
-font-size:20px;
-text-align:center;
-color:#2c8a2c;
-margin-top:10px;
-font-weight:bold;
-}
+.btnCamera{background:#00b09b;}
+.btnSave{background:#ff8008;}
+.btnRescan{background:#396afc;}
 
 </style>
 </head>
 
 <body>
 
-<div class="container" id="container">
+<div class="container">
 
-<h2>棚卸OCR</h2>
+<h2>棚卸OCR（高速版）</h2>
 
 <div class="cameraBox">
-
 <video id="video" autoplay playsinline></video>
 <div class="ocrGuide" id="guide"></div>
-
 </div>
 
 <button class="btnCamera" onclick="startCamera()">📷 カメラ起動</button>
 
 <div class="bigPart" id="bigPart">----</div>
 
-<div class="info">品名: <span id="name"></span></div>
-<div class="info">サイズ: <span id="size"></span></div>
+<div>品名: <span id="name"></span></div>
+<div>サイズ: <span id="size"></span></div>
 
-<div class="qtyBox">
 <input id="qty" placeholder="数量">
-</div>
 
 <button class="btnSave" onclick="save()">📦 登録</button>
 <button class="btnRescan" onclick="restartScan()">🔄 再スキャン</button>
 
-<div class="successMsg" id="successMsg"></div>
-<div class="status" id="status"></div>
+<div id="status"></div>
 
 </div>
 
 <script>
 
-const API="https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
+const API="【GASのURLを貼る】";
 
 let video=document.getElementById("video")
 let stream
-let part,name,size
 let scanning=false
 let timer
+let part,name,size
 
 function status(t){
 document.getElementById("status").innerText=t
 }
 
+/* =============================
+   カメラ起動
+============================= */
 async function startCamera(){
 
 stream=await navigator.mediaDevices.getUserMedia({
-/*video:{facingMode:"environment"}*/
 video:{
 facingMode:"environment",
-width:{ideal:1920},
-height:{ideal:1080}
+width:{ideal:1280},
+height:{ideal:720}
 }
 })
 
 video.srcObject=stream
 
-status("カメラ起動")
-
 startAutoScan()
 
 }
 
+/* =============================
+   高速スキャン
+============================= */
 function startAutoScan(){
 
 timer=setInterval(()=>{
-
 if(!scanning){
 scan()
 }
-
-},1200)
+},700)
 
 }
 
+/* =============================
+   OCR処理（高速＆高精度）
+============================= */
 async function scan(){
 
 if(!video.videoWidth)return
 
 scanning=true
 
-status("OCR解析中")
+status("OCR中...")
 
+/* 解像度縮小 */
 const canvas=document.createElement("canvas")
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
+const scale=640/video.videoWidth
+
+canvas.width=640
+canvas.height=video.videoHeight*scale
 
 const ctx=canvas.getContext("2d")
-ctx.drawImage(video,0,0)
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
 
-/* ガイド枠取得 */
-
+/* ガイド枠 */
 const guide=document.getElementById("guide")
 const rect=guide.getBoundingClientRect()
 const vrect=video.getBoundingClientRect()
 
-const scaleX=video.videoWidth/vrect.width
-const scaleY=video.videoHeight/vrect.height
+const scaleX=canvas.width/vrect.width
+const scaleY=canvas.height/vrect.height
 
 const sx=(rect.left-vrect.left)*scaleX
 const sy=(rect.top-vrect.top)*scaleY
@@ -226,39 +182,36 @@ const sw=rect.width*scaleX
 const sh=rect.height*scaleY
 
 /* 切り出し */
-
 const crop=document.createElement("canvas")
 crop.width=sw
 crop.height=sh
 
 const cctx=crop.getContext("2d")
-
 cctx.drawImage(canvas,sx,sy,sw,sh,0,0,sw,sh)
 
-/* 手書き強化処理 */
-
+/* OCR最適二値化 */
 const imgData=cctx.getImageData(0,0,sw,sh)
 const d=imgData.data
 
 for(let i=0;i<d.length;i+=4){
 
 const gray=(d[i]+d[i+1]+d[i+2])/3
+const bin=gray>120?255:0
 
-/*const contrast=gray>120?255:0*/
-const contrast=(gray-128)*1.8+128
-
-d[i]=contrast
-d[i+1]=contrast
-d[i+2]=contrast
+d[i]=bin
+d[i+1]=bin
+d[i+2]=bin
 
 }
 
 cctx.putImageData(imgData,0,0)
 
+/* 軽量化 */
 const base64=crop
-.toDataURL("image/jpeg",0.95)
+.toDataURL("image/jpeg",0.7)
 .replace(/^data:image\/jpeg;base64,/,"")
 
+/* API */
 const res=await fetch(API,{
 method:"POST",
 body:JSON.stringify({
@@ -268,48 +221,23 @@ image:base64
 })
 
 const data=await res.json()
-console.log(data)
 
-/*if(data.text){*/
 if(data.part){
-
-/*const partCode=extractPart(data.text)*/
-const partCode=extractPart(data.part)
-
-if(partCode){
 
 stopCamera()
 
-document.getElementById("bigPart").innerText=partCode
+document.getElementById("bigPart").innerText=data.part
 
-search(partCode)
-
-}
-
+search(data.part)
 }
 
 scanning=false
 
 }
 
-/* 図番抽出 */
-
-function extractPart(text){
-
-text=text.toUpperCase()
-
-text=text.replace(/[\sー―–]/g,"-")
-
-const match=text.match(/[A-Z]{2}-?\d{5}|\d{7}/)
-
-if(match){
-return match[0]
-}
-
-return null
-
-}
-
+/* =============================
+   停止
+============================= */
 function stopCamera(){
 
 clearInterval(timer)
@@ -322,19 +250,19 @@ video.pause()
 
 }
 
+/* =============================
+   再スキャン
+============================= */
 function restartScan(){
-
-document.getElementById("bigPart").innerText="----"
-document.getElementById("name").innerText=""
-document.getElementById("size").innerText=""
-
-startCamera()
-
+location.reload()
 }
 
+/* =============================
+   図番検索
+============================= */
 async function search(code){
 
-status("図番検索")
+status("検索中...")
 
 const res=await fetch(API,{
 method:"POST",
@@ -347,11 +275,8 @@ part:code
 const data=await res.json()
 
 if(!data.found){
-
-status("図番未登録")
-
+status("未登録")
 return
-
 }
 
 part=data.part
@@ -361,15 +286,16 @@ size=data.size
 document.getElementById("name").innerText=name
 document.getElementById("size").innerText=size
 
-status("図番取得")
+status("OK")
 
 }
 
+/* =============================
+   保存
+============================= */
 async function save(){
 
 const qty=document.getElementById("qty").value
-
-status("登録中")
 
 await fetch(API,{
 method:"POST",
@@ -382,23 +308,7 @@ qty:qty
 })
 })
 
-status("")
-
-document.getElementById("successMsg").innerText="✓ 登録完了"
-
-const c=document.getElementById("container")
-
-c.classList.add("successFlash")
-
-setTimeout(()=>{
-
-c.classList.remove("successFlash")
-
-document.getElementById("successMsg").innerText=""
-
-},1500)
-
-document.getElementById("qty").value=""
+status("登録完了")
 
 }
 
