@@ -1,422 +1,615 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8">
 <title>棚卸OCR</title>
-
 <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-body{
-font-family:sans-serif;
-background:#eef1ff;
-padding:20px;
+body {
+  font-family: -apple-system, 'Helvetica Neue', sans-serif;
+  background: #e8edf5;
+  min-height: 100vh;
+  padding: 16px;
 }
 
-.container{
-max-width:600px;
-margin:auto;
-background:white;
-padding:20px;
-border-radius:14px;
-box-shadow:0 12px 35px rgba(0,0,0,0.2);
-transition:.4s;
+.container {
+  max-width: 560px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+  transition: background 0.4s;
+}
+.container.flash-ok  { background: #d4ffd4; }
+.container.flash-err { background: #ffd4d4; }
+
+h2 {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #222;
+  margin-bottom: 14px;
 }
 
-.successFlash{
-background:#d4ffd8;
+/* カメラ枠 */
+.camera-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #111;
+  margin-bottom: 10px;
+}
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* ガイド枠 */
+.guide {
+  position: absolute;
+  left: 8%;
+  width: 84%;
+  top: 30%;
+  height: 38%;
+  border: 2.5px solid #00ff88;
+  border-radius: 8px;
+  box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+/* スキャン中アニメーション */
+.guide.scanning::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: #00ff88;
+  box-shadow: 0 0 8px #00ff88;
+  animation: scanline 1s ease-in-out infinite;
+}
+@keyframes scanline {
+  0%   { top: 0; opacity: 1; }
+  90%  { top: calc(100% - 2px); opacity: 1; }
+  100% { top: calc(100% - 2px); opacity: 0; }
 }
 
-h2{text-align:center;}
-
-.cameraBox{
-position:relative;
-width:100%;
-height:300px;
-overflow:hidden;
-border-radius:10px;
-margin-bottom:10px;
+/* 図番大表示 */
+.part-display {
+  font-size: 44px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 2px;
+  background: #111;
+  color: #00ff88;
+  padding: 10px 8px;
+  border-radius: 10px;
+  margin: 12px 0;
+  min-height: 68px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  word-break: break-all;
+}
+.part-display.not-found {
+  color: #ff5555;
 }
 
-video{
-width:100%;
-height:100%;
-object-fit:cover;
+/* 品名・サイズ */
+.info-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.info-label {
+  color: #888;
+  min-width: 54px;
+  flex-shrink: 0;
+}
+.info-value {
+  color: #222;
+  font-weight: 600;
 }
 
-.ocrGuide{
-position:absolute;
-border:3px solid #00ff88;
-width:80%;
-height:35%;
-top:32%;
-left:10%;
-border-radius:8px;
-box-shadow:0 0 10px #00ff88;
+/* 数量入力 */
+.qty-row {
+  margin: 14px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.qty-row label {
+  font-size: 16px;
+  color: #555;
+  white-space: nowrap;
+}
+.qty-row input {
+  width: 130px;
+  padding: 12px 14px;
+  font-size: 22px;
+  font-weight: 700;
+  border: 2px solid #ccc;
+  border-radius: 10px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.qty-row input:focus {
+  border-color: #4477ff;
 }
 
-.bigPart{
-font-size:48px;
-font-weight:bold;
-text-align:center;
-margin:15px 0;
-background:#000;
-color:#00ff88;
-padding:8px;
-border-radius:8px;
+/* ボタン */
+button {
+  width: 100%;
+  padding: 15px;
+  font-size: 18px;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.1s;
+  margin-top: 10px;
+}
+button:active  { transform: scale(0.97); opacity: 0.85; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-camera { background: linear-gradient(135deg, #00b09b, #5cb85c); }
+.btn-save   { background: linear-gradient(135deg, #ff8c00, #ffc837); }
+.btn-rescan { background: linear-gradient(135deg, #3a5bff, #7b2fff); }
+
+/* ステータスバー */
+.status-bar {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+  background: #f4f4f4;
+  color: #555;
+  min-height: 34px;
+  transition: background 0.2s;
+}
+.status-bar.ok  { background: #e0ffe0; color: #1a6e1a; }
+.status-bar.err { background: #ffe0e0; color: #8b0000; }
+.status-bar.info { background: #e6f0ff; color: #224499; }
+
+/* 成功メッセージ */
+.success-msg {
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+  color: #1a8a1a;
+  min-height: 30px;
+  margin-top: 8px;
 }
 
-button{
-width:100%;
-padding:16px;
-margin-top:12px;
-font-size:18px;
-border:none;
-border-radius:10px;
-color:white;
-cursor:pointer;
-transition:.15s;
-box-shadow:0 5px 12px rgba(0,0,0,.2);
+/* 履歴 */
+.history {
+  margin-top: 16px;
+  border-top: 1px solid #eee;
+  padding-top: 12px;
 }
-
-button:active{
-transform:scale(.95);
+.history h3 {
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 8px;
 }
-
-.btnCamera{background:linear-gradient(135deg,#00b09b,#96c93d);}
-.btnSave{background:linear-gradient(135deg,#ff8008,#ffc837);}
-.btnRescan{background:linear-gradient(135deg,#396afc,#2948ff);}
-
-.info{margin-top:10px;font-size:18px;}
-
-.qtyBox{
-width:40%;
-margin-top:10px;
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 4px 0;
+  border-bottom: 1px solid #f5f5f5;
+  color: #333;
 }
-
-input{
-width:100%;
-padding:14px;
-font-size:20px;
-border-radius:8px;
-border:1px solid #ccc;
+.history-item span:last-child {
+  font-weight: 700;
+  color: #4477ff;
 }
-
-.status{
-margin-top:10px;
-font-size:14px;
-text-align:center;
-color:#666;
-}
-
-.successMsg{
-font-size:20px;
-text-align:center;
-color:#2c8a2c;
-margin-top:10px;
-font-weight:bold;
-}
-
 </style>
 </head>
-
 <body>
-
 <div class="container" id="container">
+  <h2>棚卸 OCR</h2>
 
-<h2>棚卸OCR</h2>
+  <div class="camera-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="guide" id="guide"></div>
+  </div>
 
-<div class="cameraBox">
+  <button class="btn-camera" id="btnCamera" onclick="startCamera()">📷 カメラ起動</button>
 
-<video id="video" autoplay playsinline></video>
-<div class="ocrGuide" id="guide"></div>
+  <div class="part-display" id="partDisplay">----</div>
 
-</div>
+  <div class="info-row">
+    <span class="info-label">品名</span>
+    <span class="info-value" id="infoName">—</span>
+  </div>
+  <div class="info-row">
+    <span class="info-label">サイズ</span>
+    <span class="info-value" id="infoSize">—</span>
+  </div>
 
-<button class="btnCamera" onclick="startCamera()">📷 カメラ起動</button>
+  <div class="qty-row">
+    <label for="qty">数量</label>
+    <input id="qty" type="number" inputmode="numeric" placeholder="0" min="0">
+  </div>
 
-<div class="bigPart" id="bigPart">----</div>
+  <button class="btn-save"   id="btnSave"   onclick="save()"        disabled>📦 登録</button>
+  <button class="btn-rescan" id="btnRescan" onclick="restartScan()" style="display:none">🔄 再スキャン</button>
 
-<div class="info">品名: <span id="name"></span></div>
-<div class="info">サイズ: <span id="size"></span></div>
+  <div class="status-bar" id="statusBar">カメラを起動してください</div>
+  <div class="success-msg" id="successMsg"></div>
 
-<div class="qtyBox">
-<input id="qty" placeholder="数量">
-</div>
-
-<button class="btnSave" onclick="save()">📦 登録</button>
-<button class="btnRescan" onclick="restartScan()">🔄 再スキャン</button>
-
-<div class="successMsg" id="successMsg"></div>
-<div class="status" id="status"></div>
-
+  <div class="history" id="history" style="display:none">
+    <h3>登録履歴（今回分）</h3>
+    <div id="historyList"></div>
+  </div>
 </div>
 
 <script>
+// ====================================================
+//  設定（URLをデプロイ後のものに変更）
+// ====================================================
+const API = "https://script.google.com/macros/s/AKfycbxsbfN_boLmDzMznJC6CD_3v7-yge729IDP8dePjtQToIDtfnnHQ7zp5bjFksss5AG4/exec";
 
-const API="https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
+// ====================================================
+//  状態変数
+// ====================================================
+let mediaStream  = null;
+let scanTimer    = null;
+let isScanning   = false;   // API呼び出し中フラグ（詰まり防止）
+let currentPart  = null;
+let currentName  = "";
+let currentSize  = "";
+const history    = [];
 
-let video=document.getElementById("video")
-let stream
-let part,name,size
-let scanning=false
-let timer
+const video      = document.getElementById("video");
+const guide      = document.getElementById("guide");
+const partDisp   = document.getElementById("partDisplay");
+const statusBar  = document.getElementById("statusBar");
+const btnSave    = document.getElementById("btnSave");
+const btnRescan  = document.getElementById("btnRescan");
+const btnCamera  = document.getElementById("btnCamera");
 
-function status(t){
-document.getElementById("status").innerText=t
+// ====================================================
+//  ステータス表示
+// ====================================================
+function setStatus(msg, type = "") {
+  statusBar.textContent = msg;
+  statusBar.className   = "status-bar " + type;
 }
 
-async function startCamera(){
+// ====================================================
+//  カメラ起動
+// ====================================================
+async function startCamera() {
+  try {
+    setStatus("カメラ起動中...", "info");
+    btnCamera.disabled = true;
 
-stream=await navigator.mediaDevices.getUserMedia({
-/*video:{facingMode:"environment"}*/
-video:{
-facingMode:"environment",
-width:{ideal:1920},
-height:{ideal:1080}
-}
-})
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",  // 背面カメラ
+        width:  { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
+    });
 
-video.srcObject=stream
+    video.srcObject = mediaStream;
+    await video.play();
 
-status("カメラ起動")
+    setStatus("スキャン中... ガイド枠内に図番を合わせてください", "info");
+    btnCamera.style.display  = "none";
+    btnRescan.style.display  = "none";
+    guide.classList.remove("scanning");
 
-startAutoScan()
+    startAutoScan();
 
-}
-
-function startAutoScan(){
-
-timer=setInterval(()=>{
-
-if(!scanning){
-scan()
-}
-
-/*},1200)*/
-},700)
-
-}
-
-async function scan(){
-
-if(!video.videoWidth)return
-
-scanning=true
-
-status("OCR解析中")
-
-const canvas=document.createElement("canvas")
-
-/* 1920×1080画像送信 */
-/* canvas.width=video.videoWidth */
-/* canvas.height=video.videoHeight */
-
-/* 640pxに縮小 */
-const scale=640/video.videoWidth
-canvas.width=640
-canvas.height=video.videoHeight*scale
-ctx.drawImage(video,0,0,canvas.width,canvas.height)
-  
-const ctx=canvas.getContext("2d")
-ctx.drawImage(video,0,0)
-
-/* ガイド枠取得 */
-
-const guide=document.getElementById("guide")
-const rect=guide.getBoundingClientRect()
-const vrect=video.getBoundingClientRect()
-
-const scaleX=video.videoWidth/vrect.width
-const scaleY=video.videoHeight/vrect.height
-
-const sx=(rect.left-vrect.left)*scaleX
-const sy=(rect.top-vrect.top)*scaleY
-const sw=rect.width*scaleX
-const sh=rect.height*scaleY
-
-/* 切り出し */
-
-const crop=document.createElement("canvas")
-crop.width=sw
-crop.height=sh
-
-const cctx=crop.getContext("2d")
-
-cctx.drawImage(canvas,sx,sy,sw,sh,0,0,sw,sh)
-
-/* 手書き強化処理 */
-
-const imgData=cctx.getImageData(0,0,sw,sh)
-const d=imgData.data
-
-for(let i=0;i<d.length;i+=4){
-
-const gray=(d[i]+d[i+1]+d[i+2])/3
-
-/* 単純コントラスト */
-/*const contrast=(gray-128)*1.8+128*/
-/* 二値化（Binarization） */
-const contrast=gray>150?255:0
-
-d[i]=contrast
-d[i+1]=contrast
-d[i+2]=contrast
-
+  } catch (err) {
+    setStatus("カメラ起動失敗: " + err.message, "err");
+    btnCamera.disabled = false;
+  }
 }
 
-cctx.putImageData(imgData,0,0)
-
-/*const base64=crop*/
-/*.toDataURL("image/jpeg",0.95)*/
-/*.replace(/^data:image\/jpeg;base64,/,"")*/
-const base64=crop
-.toDataURL("image/jpeg",0.7)
-.replace(/^data:image\/jpeg;base64,/,"")
-
-const res=await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"ocr",
-image:base64
-})
-})
-
-const data=await res.json()
-console.log(data)
-
-/*if(data.text){*/
-if(data.part){
-
-/*const partCode=extractPart(data.text)*/
-const partCode=extractPart(data.part)
-
-if(partCode){
-
-stopCamera()
-
-document.getElementById("bigPart").innerText=partCode
-
-search(partCode)
-
+// ====================================================
+//  自動スキャン開始
+// ====================================================
+function startAutoScan() {
+  clearInterval(scanTimer);
+  isScanning = false;
+  // 1500msごとにスキャン（GAS応答を考慮した間隔）
+  scanTimer = setInterval(doScan, 1500);
 }
 
+// ====================================================
+//  スキャン実行（メイン処理）
+// ====================================================
+async function doScan() {
+  if (isScanning) return;                    // 前の処理が終わるまで待つ
+  if (!video.videoWidth || !video.paused === false) return; // 動画未準備
+
+  isScanning = true;
+  guide.classList.add("scanning");
+
+  try {
+    const base64 = captureGuideArea();
+    if (!base64) { isScanning = false; return; }
+
+    setStatus("OCR解析中...", "info");
+
+    const res  = await postToGas({ type: "ocr", image: base64 });
+    const data = await res.json();
+
+    if (data.error) {
+      setStatus("OCRエラー: " + (data.message || "不明"), "err");
+      isScanning = false;
+      guide.classList.remove("scanning");
+      return;
+    }
+
+    if (data.found && data.part) {
+      // 図番検出成功
+      stopCamera();
+      guide.classList.remove("scanning");
+      displayPart(data.part);
+      await searchPart(data.part);
+    } else {
+      setStatus("図番未検出（合わせ直してください）");
+    }
+
+  } catch (err) {
+    setStatus("通信エラー: " + err.message, "err");
+  }
+
+  isScanning = false;
+  guide.classList.remove("scanning");
 }
 
-scanning=false
+// ====================================================
+//  ガイド枠内の画像をキャプチャ
+//  ★ バグ修正：縮小canvasとガイド枠の座標を正しく計算
+// ====================================================
+function captureGuideArea() {
+  if (!video.videoWidth || !video.videoHeight) return null;
 
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
+  // 動画の実表示サイズ
+  const vrect = video.getBoundingClientRect();
+
+  // ガイド枠の実表示位置
+  const grect = guide.getBoundingClientRect();
+
+  // 動画ピクセルへのスケール比
+  const scaleX = vw / vrect.width;
+  const scaleY = vh / vrect.height;
+
+  // ガイド枠の動画座標
+  const sx = (grect.left - vrect.left) * scaleX;
+  const sy = (grect.top  - vrect.top)  * scaleY;
+  const sw = grect.width  * scaleX;
+  const sh = grect.height * scaleY;
+
+  // 安全チェック
+  if (sw <= 0 || sh <= 0) return null;
+
+  // 切り出しcanvas（元解像度のまま）
+  const crop = document.createElement("canvas");
+  crop.width  = sw;
+  crop.height = sh;
+  const ctx = crop.getContext("2d");
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  // 画像前処理（コントラスト強化）
+  enhanceImage(ctx, sw, sh);
+
+  // JPEG品質0.85（Vision API精度とサイズのバランス）
+  return crop
+    .toDataURL("image/jpeg", 0.85)
+    .replace(/^data:image\/jpeg;base64,/, "");
 }
 
-/* 図番抽出 */
+// ====================================================
+//  画像前処理（グレースケール + 適応的二値化）
+// ====================================================
+function enhanceImage(ctx, w, h) {
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
 
-function extractPart(text){
+  for (let i = 0; i < d.length; i += 4) {
+    // グレースケール変換（人間の視覚特性に合わせた係数）
+    const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
 
-text=text.toUpperCase()
+    // コントラスト強化（シグモイド的）
+    // 明るいピクセル→白、暗いピクセル→黒（手書き対応）
+    const v = gray > 140 ? 255 : gray < 80 ? 0 : gray;
 
-text=text.replace(/[\sー―–]/g,"-")
+    d[i] = d[i+1] = d[i+2] = v;
+    // d[i+3] = アルファ（変更しない）
+  }
 
-const match=text.match(/[A-Z]{2}-?\d{5}|\d{7}/)
-
-if(match){
-return match[0]
+  ctx.putImageData(imgData, 0, 0);
 }
 
-return null
-
+// ====================================================
+//  図番表示
+// ====================================================
+function displayPart(code) {
+  currentPart = code;
+  partDisp.textContent = code;
+  partDisp.className   = "part-display";
+  setStatus("図番取得: " + code + "  品名を検索中...", "info");
 }
 
-function stopCamera(){
+// ====================================================
+//  図番マスタ検索
+// ====================================================
+async function searchPart(code) {
+  try {
+    const res  = await postToGas({ type: "search", part: code });
+    const data = await res.json();
 
-clearInterval(timer)
+    if (data.found) {
+      currentName = data.name;
+      currentSize = data.size;
+      document.getElementById("infoName").textContent = data.name || "—";
+      document.getElementById("infoSize").textContent = data.size || "—";
+      setStatus("図番確認 ✓ 数量を入力して登録してください", "ok");
+      btnSave.disabled = false;
+    } else {
+      currentName = "";
+      currentSize = "";
+      document.getElementById("infoName").textContent = "（マスタ未登録）";
+      document.getElementById("infoSize").textContent = "—";
+      partDisp.classList.add("not-found");
+      setStatus("マスタに登録なし。数量入力後に手動登録できます", "err");
+      btnSave.disabled = false;  // 未登録でも登録は可能
+    }
 
-if(stream){
-stream.getTracks().forEach(t=>t.stop())
+    btnRescan.style.display = "block";
+
+  } catch (err) {
+    setStatus("検索エラー: " + err.message, "err");
+    btnRescan.style.display = "block";
+  }
 }
 
-video.pause()
+// ====================================================
+//  登録
+// ====================================================
+async function save() {
+  const qty = document.getElementById("qty").value.trim();
 
+  if (!currentPart) {
+    setStatus("図番が読み取れていません", "err");
+    return;
+  }
+  if (!qty || isNaN(qty) || Number(qty) < 0) {
+    setStatus("正しい数量を入力してください", "err");
+    return;
+  }
+
+  btnSave.disabled = true;
+  setStatus("登録中...", "info");
+
+  try {
+    const res  = await postToGas({
+      type: "save",
+      part: currentPart,
+      name: currentName,
+      size: currentSize,
+      qty:  qty
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      // 成功フラッシュ
+      flashContainer("flash-ok");
+      document.getElementById("successMsg").textContent = "✓ 登録完了！";
+      setStatus("登録しました", "ok");
+
+      // 履歴に追加
+      addHistory(currentPart, currentName, qty);
+
+      // 数量クリア
+      document.getElementById("qty").value = "";
+
+      setTimeout(() => {
+        document.getElementById("successMsg").textContent = "";
+      }, 2500);
+
+    } else {
+      setStatus("登録失敗: " + (data.message || "不明"), "err");
+      btnSave.disabled = false;
+    }
+
+  } catch (err) {
+    setStatus("通信エラー: " + err.message, "err");
+    btnSave.disabled = false;
+  }
 }
 
-function restartScan(){
-
-document.getElementById("bigPart").innerText="----"
-document.getElementById("name").innerText=""
-document.getElementById("size").innerText=""
-
-startCamera()
-
+// ====================================================
+//  カメラ停止
+// ====================================================
+function stopCamera() {
+  clearInterval(scanTimer);
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  video.pause();
+  video.srcObject = null;
 }
 
-async function search(code){
+// ====================================================
+//  再スキャン
+// ====================================================
+function restartScan() {
+  currentPart = null;
+  currentName = "";
+  currentSize = "";
 
-status("図番検索")
+  partDisp.textContent = "----";
+  partDisp.className   = "part-display";
+  document.getElementById("infoName").textContent = "—";
+  document.getElementById("infoSize").textContent = "—";
+  document.getElementById("successMsg").textContent = "";
 
-const res=await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"search",
-part:code
-})
-})
+  btnSave.disabled        = true;
+  btnRescan.style.display = "none";
+  btnCamera.style.display = "block";
+  btnCamera.disabled      = false;
 
-const data=await res.json()
-
-if(!data.found){
-
-status("図番未登録")
-
-return
-
+  setStatus("カメラを起動してください");
 }
 
-part=data.part
-name=data.name
-size=data.size
+// ====================================================
+//  履歴表示
+// ====================================================
+function addHistory(part, name, qty) {
+  history.unshift({ part, name, qty, time: new Date().toLocaleTimeString() });
+  if (history.length > 10) history.pop();
 
-document.getElementById("name").innerText=name
-document.getElementById("size").innerText=size
-
-status("図番取得")
-
+  const histEl   = document.getElementById("history");
+  const listEl   = document.getElementById("historyList");
+  histEl.style.display = "block";
+  listEl.innerHTML = history.map(h =>
+    `<div class="history-item">
+       <span>${h.time} ${h.part} ${h.name}</span>
+       <span>${h.qty}個</span>
+     </div>`
+  ).join("");
 }
 
-async function save(){
-
-const qty=document.getElementById("qty").value
-
-status("登録中")
-
-await fetch(API,{
-method:"POST",
-body:JSON.stringify({
-type:"save",
-part:part,
-name:name,
-size:size,
-qty:qty
-})
-})
-
-status("")
-
-document.getElementById("successMsg").innerText="✓ 登録完了"
-
-const c=document.getElementById("container")
-
-c.classList.add("successFlash")
-
-setTimeout(()=>{
-
-c.classList.remove("successFlash")
-
-document.getElementById("successMsg").innerText=""
-
-},1500)
-
-document.getElementById("qty").value=""
-
+// ====================================================
+//  コンテナフラッシュ
+// ====================================================
+function flashContainer(cls) {
+  const c = document.getElementById("container");
+  c.classList.add(cls);
+  setTimeout(() => c.classList.remove(cls), 1500);
 }
 
+// ====================================================
+//  GAS POST（共通）
+// ====================================================
+function postToGas(body) {
+  return fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+}
 </script>
-
 </body>
 </html>
