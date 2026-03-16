@@ -423,19 +423,19 @@ async function doScan() {
         setStatus("図番候補: " + data.part + "　確認中...", "info");
       }
     } else {
-      sameCount = 0;
-      // rawTextがあればOCRは動いているが抽出失敗 → 生テキストを表示
+      same      sameCount = 0;
       if (data.rawText && data.rawText.trim()) {
-        const preview = data.rawText.replace(/\n/g, " ").substring(0, 60);
-        setStatus("OCR読取: [" + preview + "] 図番を手入力してください", "err");
-        // 読み取ったテキストを入力欄にセットして手修正しやすくする
-        partInput.value = data.rawText.replace(/\n/g, " ").trim().substring(0, 30);
+        var rv = data.rawText.replace(/\n/g, " ").trim();
+        setStatus("OCR生テキスト: [" + rv.substring(0, 80) + "]", "err");
+        partInput.value = rv.substring(0, 40);
         partInput.removeAttribute("readonly");
         partInput.className = "editing";
+        document.getElementById("partHint").textContent = "図番部分を残して修正 → 入力欄の外をタップで確定";
         btnSave.disabled        = false;
         btnRescan.style.display = "block";
+        stopCamera();
       } else {
-        setStatus("図番未検出 — ガイド枠に図番を合わせてください");
+        setStatus("テキスト未読取 — 明るい場所でガイド枠に図番を合わせてください");
       }
     }
 
