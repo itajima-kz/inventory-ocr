@@ -78,26 +78,46 @@ video {
   100% { top: calc(100% - 2px); opacity: 0; }
 }
 
-/* 図番大表示 */
-.part-display {
-  font-size: 44px;
+/* 図番表示（編集可能input） */
+.part-input-wrap {
+  margin: 12px 0 4px;
+}
+.part-input-label {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+#partInput {
+  width: 100%;
+  font-size: 32px;
   font-weight: 800;
   text-align: center;
   letter-spacing: 2px;
   background: #111;
   color: #00ff88;
-  padding: 10px 8px;
+  border: 2px solid transparent;
   border-radius: 10px;
-  margin: 12px 0;
-  min-height: 68px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  word-break: break-all;
+  padding: 10px 8px;
+  outline: none;
+  box-sizing: border-box;
+  font-family: monospace;
+  transition: border-color 0.2s, color 0.2s;
 }
-.part-display.not-found {
+#partInput:focus {
+  border-color: #00ff88;
+}
+#partInput.not-found {
   color: #ff5555;
+}
+#partInput.editing {
+  border-color: #ffaa00;
+  color: #ffaa00;
+}
+.part-hint {
+  font-size: 11px;
+  color: #888;
+  text-align: center;
+  margin-top: 3px;
 }
 
 /* 品名・サイズ */
@@ -232,7 +252,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
     <canvas id="debugCanvas" style="max-width:100%;border:1px solid #ccc;border-radius:6px"></canvas>
   </div>
 
-  <div class="part-display" id="partDisplay">----</div>
+  <div class="part-input-wrap">
+    <div class="part-input-label">図番</div>
+    <input id="partInput" type="text" value="----" readonly
+           placeholder="読み取り待ち..."
+           oninput="onPartEdit()"
+           onblur="onPartBlur()">
+    <div class="part-hint" id="partHint">OCR読み取り後、手修正も可能です</div>
+  </div>
 
   <div class="info-row">
     <span class="info-label">品名</span>
@@ -264,7 +291,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 // ====================================================
 //  設定（URLをデプロイ後のものに変更）
 // ====================================================
-const API = "https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
+const API = "https://script.google.com/macros/s/AKfycbw90aKoHtDWdE13x_eV9gnoGmzICxXS8w7Sq3qw3LO_LNreN8jea6Lm4xp6q_s0FYTs/exec";
 
 // ====================================================
 //  状態変数
@@ -275,11 +302,14 @@ let isScanning    = false;   // API呼び出し中フラグ（詰まり防止）
 let currentPart  = null;
 let currentName  = "";
 let currentSize  = "";
+let lastHash     = "";    // 前フレームのハッシュ（同一画像スキップ用）
+let sameCount    = 0;      // 連続同一図番カウント
+let lastCandidate = null;  // 直前の図番候補
 const history    = [];
 
 const video      = document.getElementById("video");
 const guide      = document.getElementById("guide");
-const partDisp   = document.getElementById("partDisplay");
+const partInput  = document.getElementById("partInput");
 const statusBar  = document.getElementById("statusBar");
 const btnSave    = document.getElementById("btnSave");
 const btnRescan  = document.getElementById("btnRescan");
@@ -349,9 +379,19 @@ async function doScan() {
     const base64 = captureGuideArea();
     if (!base64) { isScanning = false; return; }
 
+    // 前フレームと同じ画像ならスキップ（簡易ハッシュ：先頭100文字）
+    const hash = base64.substring(0, 100);
+    if (hash === lastHash) {
+      isScanning = false;
+      guide.classList.remove("scanning");
+      return;
+    }
+    lastHash = hash;
+
     setStatus("OCR解析中...", "info");
 
-    const res  = await postToGas({ type: "ocr", image: base64 });
+    // OCR＋マスタ検索を1回の通信で実行（type:"ocr_search"）
+    const res  = await postToGas({ type: "ocr_search", image: base64 });
     const data = await res.json();
 
     if (data.error) {
@@ -361,13 +401,29 @@ async function doScan() {
       return;
     }
 
-    if (data.found && data.part) {
-      // 図番検出成功
-      stopCamera();
-      guide.classList.remove("scanning");
-      displayPart(data.part);
-      await searchPart(data.part);
+    if (data.part) {
+      // 連続2回同じ図番が出たら確定（誤読防止）
+      if (data.part === lastCandidate) {
+        sameCount++;
+      } else {
+        sameCount = 1;
+        lastCandidate = data.part;
+      }
+
+      if (sameCount >= 2) {
+        // 確定：カメラ停止・表示
+        stopCamera();
+        guide.classList.remove("scanning");
+        sameCount = 0;
+        lastCandidate = null;
+        displayPart(data.part);
+        // マスタ結果はすでにレスポンスに含まれている
+        applySearchResult(data);
+      } else {
+        setStatus("図番候補: " + data.part + "　確認中...", "info");
+      }
     } else {
+      sameCount = 0;
       setStatus("図番未検出（合わせ直してください）");
     }
 
@@ -432,87 +488,165 @@ function captureGuideArea() {
   const ctx = crop.getContext("2d");
   ctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
 
-  // 画像前処理
+  // 画像前処理（コントラスト強化）
   enhanceImage(ctx, csw, csh);
+
+  // リサイズ（送信サイズ削減：長辺800px上限）
+  // Vision APIは高解像度でも精度が変わらない一方、送信時間が増える
+  const MAX_SIDE = 800;
+  let sendCanvas = crop;
+  if (csw > MAX_SIDE || csh > MAX_SIDE) {
+    const ratio  = Math.min(MAX_SIDE / csw, MAX_SIDE / csh);
+    const rw     = Math.round(csw * ratio);
+    const rh     = Math.round(csh * ratio);
+    sendCanvas   = document.createElement("canvas");
+    sendCanvas.width  = rw;
+    sendCanvas.height = rh;
+    sendCanvas.getContext("2d").drawImage(crop, 0, 0, rw, rh);
+  }
 
   // デバッグプレビュー
   const dbg     = document.getElementById("debugCanvas");
   const dbgArea = document.getElementById("debugArea");
   if (dbg) {
-    dbg.width  = csw;
-    dbg.height = csh;
-    dbg.getContext("2d").drawImage(crop, 0, 0);
+    dbg.width  = sendCanvas.width;
+    dbg.height = sendCanvas.height;
+    dbg.getContext("2d").drawImage(sendCanvas, 0, 0);
     dbgArea.style.display = "block";
   }
 
-  return crop
-    .toDataURL("image/jpeg", 0.85)
+  return sendCanvas
+    .toDataURL("image/jpeg", 0.75)   // 品質0.75（0.85より約30%軽量）
     .replace(/^data:image\/jpeg;base64,/, "");
 }
 
 // ====================================================
-//  画像前処理（グレースケール + 適応的二値化）
+//  画像前処理（強化版）
+//  ① グレースケール変換
+//  ② アンシャープマスク（輪郭強調）
+//  ③ コントラスト伸張（明暗差を最大化）
 // ====================================================
 function enhanceImage(ctx, w, h) {
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
+  const gray = new Float32Array(w * h);
 
+  // ① グレースケール変換
   for (let i = 0; i < d.length; i += 4) {
-    // グレースケール変換（人間の視覚特性に合わせた係数）
-    const gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+    gray[i >> 2] = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+  }
 
-    // コントラスト強化（シグモイド的）
-    // 明るいピクセル→白、暗いピクセル→黒（手書き対応）
-    const v = gray > 140 ? 255 : gray < 80 ? 0 : gray;
+  // ② アンシャープマスク（3×3 ボックスブラー差分で輪郭強調）
+  //    sharpened = original * (1 + amount) - blurred * amount
+  const blurred = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, cnt = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const ny = y + dy, nx = x + dx;
+          if (ny >= 0 && ny < h && nx >= 0 && nx < w) {
+            sum += gray[ny * w + nx]; cnt++;
+          }
+        }
+      }
+      blurred[y * w + x] = sum / cnt;
+    }
+  }
+  const AMOUNT = 1.5;  // シャープ強度（大きいほど強調）
+  for (let i = 0; i < gray.length; i++) {
+    gray[i] = Math.min(255, Math.max(0,
+      gray[i] * (1 + AMOUNT) - blurred[i] * AMOUNT
+    ));
+  }
 
-    d[i] = d[i+1] = d[i+2] = v;
-    // d[i+3] = アルファ（変更しない）
+  // ③ コントラスト伸張（最暗〜最明を0〜255にマッピング）
+  let minG = 255, maxG = 0;
+  for (let i = 0; i < gray.length; i++) {
+    if (gray[i] < minG) minG = gray[i];
+    if (gray[i] > maxG) maxG = gray[i];
+  }
+  const range = maxG - minG || 1;
+
+  for (let i = 0; i < gray.length; i++) {
+    const v = Math.round((gray[i] - minG) / range * 255);
+    const p = i * 4;
+    d[p] = d[p+1] = d[p+2] = v;
   }
 
   ctx.putImageData(imgData, 0, 0);
 }
 
 // ====================================================
-//  図番表示
+//  図番表示（inputに反映）
 // ====================================================
 function displayPart(code) {
-  currentPart = code;
-  partDisp.textContent = code;
-  partDisp.className   = "part-display";
+  currentPart    = code;
+  partInput.value     = code;
+  partInput.className = "";
+  partInput.removeAttribute("readonly");  // 手修正を許可
+  document.getElementById("partHint").textContent = "修正が必要な場合は直接編集してください";
   setStatus("図番取得: " + code + "  品名を検索中...", "info");
 }
 
 // ====================================================
-//  図番マスタ検索
+//  図番を手動編集したとき
 // ====================================================
-async function searchPart(code) {
+function onPartEdit() {
+  partInput.className = "editing";
+  currentPart = partInput.value.trim().toUpperCase();
+  partInput.value = currentPart;  // 大文字に統一
+  document.getElementById("partHint").textContent = "✎ 編集中 — 入力欄の外をタップで図番確定・再検索";
+}
+
+function onPartBlur() {
+  const code = partInput.value.trim();
+  if (!code || code === "----") return;
+  if (partInput.classList.contains("editing")) {
+    partInput.className = "";
+    currentPart = code.toUpperCase();
+    partInput.value = currentPart;
+    document.getElementById("partHint").textContent = "手修正確定 — 数量を入力して登録してください";
+    // 修正後にマスタ再検索
+    searchAndApply(currentPart);
+  }
+}
+
+// ====================================================
+//  図番でマスタ検索して画面反映（手修正後にも使用）
+// ====================================================
+async function searchAndApply(code) {
+  setStatus("図番検索中...", "info");
   try {
     const res  = await postToGas({ type: "search", part: code });
     const data = await res.json();
-
-    if (data.found) {
-      currentName = data.name;
-      currentSize = data.size;
-      document.getElementById("infoName").textContent = data.name || "—";
-      document.getElementById("infoSize").textContent = data.size || "—";
-      setStatus("図番確認 ✓ 数量を入力して登録してください", "ok");
-      btnSave.disabled = false;
-    } else {
-      currentName = "";
-      currentSize = "";
-      document.getElementById("infoName").textContent = "（マスタ未登録）";
-      document.getElementById("infoSize").textContent = "—";
-      partDisp.classList.add("not-found");
-      setStatus("マスタに登録なし。数量入力後に手動登録できます", "err");
-      btnSave.disabled = false;  // 未登録でも登録は可能
-    }
-
-    btnRescan.style.display = "block";
-
+    applySearchResult(data);
   } catch (err) {
     setStatus("検索エラー: " + err.message, "err");
     btnRescan.style.display = "block";
   }
+}
+
+// ====================================================
+//  マスタ検索結果を画面に反映（OCRレスポンスから直接呼ぶ）
+// ====================================================
+function applySearchResult(data) {
+  if (data.found) {
+    currentName = data.name;
+    currentSize = data.size;
+    document.getElementById("infoName").textContent = data.name || "—";
+    document.getElementById("infoSize").textContent = data.size || "—";
+    setStatus("図番確認 ✓ 数量を入力して登録してください", "ok");
+  } else {
+    currentName = "";
+    currentSize = "";
+    document.getElementById("infoName").textContent = "（マスタ未登録）";
+    document.getElementById("infoSize").textContent = "—";
+    partInput.classList.add("not-found");
+    setStatus("マスタに登録なし。数量入力後に手動登録できます", "err");
+  }
+  btnSave.disabled        = false;
+  btnRescan.style.display = "block";
 }
 
 // ====================================================
@@ -591,8 +725,10 @@ function restartScan() {
   currentName = "";
   currentSize = "";
 
-  partDisp.textContent = "----";
-  partDisp.className   = "part-display";
+  partInput.value     = "----";
+  partInput.className = "";
+  partInput.setAttribute("readonly", true);
+  document.getElementById("partHint").textContent = "OCR読み取り後、手修正も可能です";
   document.getElementById("infoName").textContent = "—";
   document.getElementById("infoSize").textContent = "—";
   document.getElementById("successMsg").textContent = "";
@@ -601,6 +737,9 @@ function restartScan() {
   btnRescan.style.display = "none";
   btnCamera.style.display = "block";
   btnCamera.disabled      = false;
+  lastHash      = "";
+  sameCount     = 0;
+  lastCandidate = null;
 
   setStatus("カメラを起動してください");
 }
