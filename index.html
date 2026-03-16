@@ -192,7 +192,8 @@ if(!scanning){
 scan()
 }
 
-},1200)
+/*},1200)*/
+},700)
 
 }
 
@@ -205,9 +206,17 @@ scanning=true
 status("OCR解析中")
 
 const canvas=document.createElement("canvas")
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
 
+/* 1920×1080画像送信 */
+/* canvas.width=video.videoWidth */
+/* canvas.height=video.videoHeight */
+
+/* 640pxに縮小 */
+const scale=640/video.videoWidth
+canvas.width=640
+canvas.height=video.videoHeight*scale
+ctx.drawImage(video,0,0,canvas.width,canvas.height)
+  
 const ctx=canvas.getContext("2d")
 ctx.drawImage(video,0,0)
 
@@ -244,8 +253,10 @@ for(let i=0;i<d.length;i+=4){
 
 const gray=(d[i]+d[i+1]+d[i+2])/3
 
-/*const contrast=gray>120?255:0*/
-const contrast=(gray-128)*1.8+128
+/* 単純コントラスト */
+/*const contrast=(gray-128)*1.8+128*/
+/* 二値化（Binarization） */
+const contrast=gray>150?255:0
 
 d[i]=contrast
 d[i+1]=contrast
@@ -255,8 +266,11 @@ d[i+2]=contrast
 
 cctx.putImageData(imgData,0,0)
 
+/*const base64=crop*/
+/*.toDataURL("image/jpeg",0.95)*/
+/*.replace(/^data:image\/jpeg;base64,/,"")*/
 const base64=crop
-.toDataURL("image/jpeg",0.95)
+.toDataURL("image/jpeg",0.7)
 .replace(/^data:image\/jpeg;base64,/,"")
 
 const res=await fetch(API,{
