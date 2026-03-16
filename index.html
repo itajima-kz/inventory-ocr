@@ -426,12 +426,10 @@ async function doScan() {
       sameCount = 0;
       // rawTextがあればOCRは動いているが抽出失敗 → 生テキストを表示
       if (data.rawText && data.rawText.trim()) {
-        const preview = data.rawText.replace(/
-/g, " ").substring(0, 60);
+        const preview = data.rawText.replace(/\n/g, " ").substring(0, 60);
         setStatus("OCR読取: [" + preview + "] 図番を手入力してください", "err");
         // 読み取ったテキストを入力欄にセットして手修正しやすくする
-        partInput.value = data.rawText.replace(/
-/g, " ").trim().substring(0, 30);
+        partInput.value = data.rawText.replace(/\n/g, " ").trim().substring(0, 30);
         partInput.removeAttribute("readonly");
         partInput.className = "editing";
         btnSave.disabled        = false;
