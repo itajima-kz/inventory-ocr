@@ -291,7 +291,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 // ====================================================
 //  設定（URLをデプロイ後のものに変更）
 // ====================================================
-const API = "https://script.google.com/macros/s/AKfycbw90aKoHtDWdE13x_eV9gnoGmzICxXS8w7Sq3qw3LO_LNreN8jea6Lm4xp6q_s0FYTs/exec";
+const API = "https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
 
 // ====================================================
 //  状態変数
@@ -424,7 +424,21 @@ async function doScan() {
       }
     } else {
       sameCount = 0;
-      setStatus("図番未検出（合わせ直してください）");
+      // rawTextがあればOCRは動いているが抽出失敗 → 生テキストを表示
+      if (data.rawText && data.rawText.trim()) {
+        const preview = data.rawText.replace(/
+/g, " ").substring(0, 60);
+        setStatus("OCR読取: [" + preview + "] 図番を手入力してください", "err");
+        // 読み取ったテキストを入力欄にセットして手修正しやすくする
+        partInput.value = data.rawText.replace(/
+/g, " ").trim().substring(0, 30);
+        partInput.removeAttribute("readonly");
+        partInput.className = "editing";
+        btnSave.disabled        = false;
+        btnRescan.style.display = "block";
+      } else {
+        setStatus("図番未検出 — ガイド枠に図番を合わせてください");
+      }
     }
 
   } catch (err) {
@@ -631,9 +645,11 @@ async function searchAndApply(code) {
 //  マスタ検索結果を画面に反映（OCRレスポンスから直接呼ぶ）
 // ====================================================
 function applySearchResult(data) {
-  if (data.found) {
-    currentName = data.name;
-    currentSize = data.size;
+  // inMaster（新フォーマット）または found（旧フォーマット）両対応
+  const inMaster = data.inMaster !== undefined ? data.inMaster : data.found;
+  if (inMaster) {
+    currentName = data.name || "";
+    currentSize = data.size || "";
     document.getElementById("infoName").textContent = data.name || "—";
     document.getElementById("infoSize").textContent = data.size || "—";
     setStatus("図番確認 ✓ 数量を入力して登録してください", "ok");
@@ -643,7 +659,7 @@ function applySearchResult(data) {
     document.getElementById("infoName").textContent = "（マスタ未登録）";
     document.getElementById("infoSize").textContent = "—";
     partInput.classList.add("not-found");
-    setStatus("マスタに登録なし。数量入力後に手動登録できます", "err");
+    setStatus("マスタに登録なし — 数量入力後に手動登録できます", "err");
   }
   btnSave.disabled        = false;
   btnRescan.style.display = "block";
