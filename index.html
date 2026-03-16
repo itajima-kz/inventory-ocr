@@ -84,7 +84,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 <script>
 // ★ デプロイURLをここに貼る
-var API = "https://script.google.com/macros/s/AKfycbwXd7g5ukFOkMU8on6zXjLM8FuP40d9PtjWkO9QRHTFjWKFGpOukOFKGszgTGN3ryTf/exec";
+var API = "https://script.google.com/macros/s/AKfycbyeio7OOFDV0CFlplpuvm44UPA0ANukRmnmwi-bteh51T6T6Fd6leyTI6WmCjyFAWRw/exec";
 
 var mediaStream   = null;
 var scanTimer     = null;
@@ -121,7 +121,7 @@ function startCamera() {
   cameraReady = false;
 
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment", width: { ideal: 1080 }, height: { ideal: 1920 } }
+    video: { facingMode: "environment" }  // サイズ指定なし
   }).then(function(stream) {
     mediaStream = stream;
     video.srcObject = stream;
@@ -129,7 +129,8 @@ function startCamera() {
     video.onloadedmetadata = function() {
       video.play().then(function() {
         cameraReady = true;
-        setStatus("スキャン中... ガイド枠内に図番を合わせてください", "info");
+        setStatus("カメラ起動: " + video.videoWidth + "x" + video.videoHeight
+          + "  ガイド枠に図番を合わせてください", "info");
         btnCamera.style.display = "none";
         btnRescan.style.display = "none";
         startAutoScan();
@@ -165,8 +166,8 @@ function doScan() {
   if (!base64) { isScanning = false; guide.classList.remove("scanning"); return; }
 
   var hash = base64.substring(0, 100);
-  if (hash === lastHash) { isScanning = false; guide.classList.remove("scanning"); return; }
-  lastHash = hash;
+  // if (hash === lastHash) { isScanning = false; guide.classList.remove("scanning"); return; }
+  // lastHash = hash; // 診断中：スキップ無効化
 
   setStatus("OCR解析中...", "info");
 
@@ -179,12 +180,8 @@ function doScan() {
       }
 
       if (data.part) {
-        if (data.part === lastCandidate) {
-          sameCount++;
-        } else {
-          sameCount = 1;
-          lastCandidate = data.part;
-        }
+        // 診断中：1回検出で即確定
+        sameCount = 2;
         if (sameCount >= 2) {
           stopCamera();
           guide.classList.remove("scanning");
@@ -228,57 +225,87 @@ function doScan() {
 
 // ====================================================
 //  ガイド枠キャプチャ
-//  videoの実ピクセル(videoWidth/videoHeight)を使用
-//  CSS表示サイズ・aspect-ratioに依存しない
+//  iOSの横向き映像（回転メタデータ問題）対応版
+//  → videoWidth > videoHeight の場合は横動画として処理
 // ====================================================
 function captureGuideArea() {
   if (!video.videoWidth || !video.videoHeight) return null;
 
-  var vw = video.videoWidth;   // 実際の動画ピクセル幅
-  var vh = video.videoHeight;  // 実際の動画ピクセル高さ
+  var vw = video.videoWidth;
+  var vh = video.videoHeight;
 
-  // video要素のCSS表示サイズ
+  // iOSは縦持ちでも横動画(例:1920x1080)を出す場合がある
+  // その場合は90度回転してから切り出す
+  var isRotated = (vw > vh);
+
+  // cover計算は「表示枠に対する動画の実サイズ」で行う
   var vrect = video.getBoundingClientRect();
   var dispW = vrect.width;
   var dispH = vrect.height;
 
-  // object-fit:cover のスケール計算
-  // 表示枠を完全に埋める → 縦横で大きい方のスケール
-  var scale  = Math.max(dispW / vw, dispH / vh);
-  var overX  = (vw * scale - dispW) / 2;
-  var overY  = (vh * scale - dispH) / 2;
+  // 回転を考慮した論理サイズ
+  var logicalW = isRotated ? vh : vw;  // 縦持ち後の幅
+  var logicalH = isRotated ? vw : vh;  // 縦持ち後の高さ
 
-  // ガイド枠のCSS座標 → 動画ピクセル座標に変換
-  var grect  = guide.getBoundingClientRect();
-  var gLeft  = grect.left - vrect.left;
-  var gTop   = grect.top  - vrect.top;
-  var sx     = (gLeft + overX) / scale;
-  var sy     = (gTop  + overY) / scale;
-  var sw     = grect.width    / scale;
-  var sh     = grect.height   / scale;
+  // object-fit:cover スケール
+  var scale = Math.max(dispW / logicalW, dispH / logicalH);
+  var overX = (logicalW * scale - dispW) / 2;
+  var overY = (logicalH * scale - dispH) / 2;
 
-  // 範囲クランプ
-  var csx = Math.max(0, Math.round(sx));
-  var csy = Math.max(0, Math.round(sy));
-  var csw = Math.min(vw - csx, Math.round(sw));
-  var csh = Math.min(vh - csy, Math.round(sh));
+  // ガイド枠 → 論理ピクセル座標
+  var grect = guide.getBoundingClientRect();
+  var gLeft = grect.left - vrect.left;
+  var gTop  = grect.top  - vrect.top;
+  var lx = (gLeft + overX) / scale;
+  var ly = (gTop  + overY) / scale;
+  var lw = grect.width    / scale;
+  var lh = grect.height   / scale;
 
+  // 論理座標 → 動画ピクセル座標（回転補正）
+  var sx, sy, sw, sh;
+  if (isRotated) {
+    // 90度回転(時計回り)：論理(x,y) → 動画(y, logicalW-x-w)
+    sx = Math.round(ly);
+    sy = Math.round(logicalW - lx - lw);
+    sw = Math.round(lh);
+    sh = Math.round(lw);
+  } else {
+    sx = Math.round(lx);
+    sy = Math.round(ly);
+    sw = Math.round(lw);
+    sh = Math.round(lh);
+  }
+
+  // クランプ
+  var csx = Math.max(0, sx);
+  var csy = Math.max(0, sy);
+  var csw = Math.min(vw - csx, sw);
+  var csh = Math.min(vh - csy, sh);
   if (csw < 10 || csh < 10) return null;
 
-  // ガイド枠を切り出し
+  // 切り出し（回転している場合は戻す）
   var crop = document.createElement("canvas");
-  crop.width  = csw;
-  crop.height = csh;
-  crop.getContext("2d").drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
+  if (isRotated) {
+    // 切り出し後90度反時計回りに戻す
+    crop.width  = csh;
+    crop.height = csw;
+    var rctx = crop.getContext("2d");
+    rctx.translate(0, csw);
+    rctx.rotate(-Math.PI / 2);
+    rctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
+  } else {
+    crop.width  = csw;
+    crop.height = csh;
+    crop.getContext("2d").drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
+  }
 
   // 長辺1200px上限にリサイズ
-  var MAX  = 1200;
-  var send = crop;
-  if (csw > MAX || csh > MAX) {
-    var r  = Math.min(MAX / csw, MAX / csh);
-    send   = document.createElement("canvas");
-    send.width  = Math.round(csw * r);
-    send.height = Math.round(csh * r);
+  var MAX = 1200, send = crop;
+  if (crop.width > MAX || crop.height > MAX) {
+    var r = Math.min(MAX / crop.width, MAX / crop.height);
+    send = document.createElement("canvas");
+    send.width  = Math.round(crop.width  * r);
+    send.height = Math.round(crop.height * r);
     send.getContext("2d").drawImage(crop, 0, 0, send.width, send.height);
   }
 
@@ -294,8 +321,10 @@ function captureGuideArea() {
   var b64 = send.toDataURL("image/jpeg", 0.85)
               .replace(/^data:image\/jpeg;base64,/, "");
 
-  setStatus("送信: " + send.width + "x" + send.height
-    + " (元:" + vw + "x" + vh + ") base64:" + b64.length, "info");
+  setStatus("送信:" + send.width + "x" + send.height
+    + " 元:" + vw + "x" + vh
+    + (isRotated ? " [回転補正]" : "")
+    + " b64:" + b64.length, "info");
 
   return b64;
 }
