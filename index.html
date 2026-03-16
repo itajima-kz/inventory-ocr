@@ -227,31 +227,59 @@ function doScan() {
 }
 
 // ====================================================
-//  ガイド枠キャプチャ（診断用シンプル版）
-//  ★ 座標計算を省略してvideo全体を送信
-//    → Vision APIが読めるか確認するための暫定版
+//  ガイド枠キャプチャ
+//  videoの実ピクセル(videoWidth/videoHeight)を使用
+//  CSS表示サイズ・aspect-ratioに依存しない
 // ====================================================
 function captureGuideArea() {
   if (!video.videoWidth || !video.videoHeight) return null;
 
-  var vw = video.videoWidth;
-  var vh = video.videoHeight;
+  var vw = video.videoWidth;   // 実際の動画ピクセル幅
+  var vh = video.videoHeight;  // 実際の動画ピクセル高さ
 
-  // video全体をそのままcanvasに描画
-  var canvas = document.createElement("canvas");
-  canvas.width  = vw;
-  canvas.height = vh;
-  canvas.getContext("2d").drawImage(video, 0, 0, vw, vh);
+  // video要素のCSS表示サイズ
+  var vrect = video.getBoundingClientRect();
+  var dispW = vrect.width;
+  var dispH = vrect.height;
 
-  // 長辺1200px上限にリサイズ（大きすぎると送信失敗）
-  var MAX = 1200;
-  var send = canvas;
-  if (vw > MAX || vh > MAX) {
-    var r = Math.min(MAX / vw, MAX / vh);
-    send = document.createElement("canvas");
-    send.width  = Math.round(vw * r);
-    send.height = Math.round(vh * r);
-    send.getContext("2d").drawImage(canvas, 0, 0, send.width, send.height);
+  // object-fit:cover のスケール計算
+  // 表示枠を完全に埋める → 縦横で大きい方のスケール
+  var scale  = Math.max(dispW / vw, dispH / vh);
+  var overX  = (vw * scale - dispW) / 2;
+  var overY  = (vh * scale - dispH) / 2;
+
+  // ガイド枠のCSS座標 → 動画ピクセル座標に変換
+  var grect  = guide.getBoundingClientRect();
+  var gLeft  = grect.left - vrect.left;
+  var gTop   = grect.top  - vrect.top;
+  var sx     = (gLeft + overX) / scale;
+  var sy     = (gTop  + overY) / scale;
+  var sw     = grect.width    / scale;
+  var sh     = grect.height   / scale;
+
+  // 範囲クランプ
+  var csx = Math.max(0, Math.round(sx));
+  var csy = Math.max(0, Math.round(sy));
+  var csw = Math.min(vw - csx, Math.round(sw));
+  var csh = Math.min(vh - csy, Math.round(sh));
+
+  if (csw < 10 || csh < 10) return null;
+
+  // ガイド枠を切り出し
+  var crop = document.createElement("canvas");
+  crop.width  = csw;
+  crop.height = csh;
+  crop.getContext("2d").drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
+
+  // 長辺1200px上限にリサイズ
+  var MAX  = 1200;
+  var send = crop;
+  if (csw > MAX || csh > MAX) {
+    var r  = Math.min(MAX / csw, MAX / csh);
+    send   = document.createElement("canvas");
+    send.width  = Math.round(csw * r);
+    send.height = Math.round(csh * r);
+    send.getContext("2d").drawImage(crop, 0, 0, send.width, send.height);
   }
 
   // デバッグプレビュー
@@ -263,10 +291,11 @@ function captureGuideArea() {
     document.getElementById("debugArea").style.display = "block";
   }
 
-  var b64 = send.toDataURL("image/jpeg", 0.85).replace(/^data:image\/jpeg;base64,/, "");
+  var b64 = send.toDataURL("image/jpeg", 0.85)
+              .replace(/^data:image\/jpeg;base64,/, "");
 
-  // サイズをステータスに表示
-  setStatus("送信: " + send.width + "x" + send.height + " / base64:" + b64.length + "文字", "info");
+  setStatus("送信: " + send.width + "x" + send.height
+    + " (元:" + vw + "x" + vh + ") base64:" + b64.length, "info");
 
   return b64;
 }
