@@ -82,7 +82,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 <script>
 // ★ デプロイURLをここに貼る
-var API = "https://script.google.com/macros/s/AKfycbwXd7g5ukFOkMU8on6zXjLM8FuP40d9PtjWkO9QRHTFjWKFGpOukOFKGszgTGN3ryTf/exec";
+var API = "https://script.google.com/macros/s/AKfycbxer0jfms4ckZcgjJpwtVqsVuGYA4NqyTMF69NdXdHD7uZNIkTmmikirSpnPBmIbYpF/exec";
 
 var mediaStream   = null;
 var scanTimer     = null;
@@ -244,7 +244,7 @@ function captureGuideArea() {
   crop.width = csw; crop.height = csh;
   var ctx = crop.getContext("2d");
   ctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
-  enhanceImage(ctx, csw, csh);
+  // enhanceImage(ctx, csw, csh); // ★診断中：前処理無効
 
   var MAX = 800, send = crop;
   if (csw > MAX || csh > MAX) {
