@@ -258,7 +258,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 // ====================================================
 //  設定（URLをデプロイ後のものに変更）
 // ====================================================
-const API = "https://script.google.com/macros/s/AKfycbxsbfN_boLmDzMznJC6CD_3v7-yge729IDP8dePjtQToIDtfnnHQ7zp5bjFksss5AG4/exec";
+const API = "https://script.google.com/macros/s/AKfycbwxvEY-qSOt6nYhMdKpozNXFyetZAIsyL4DoS49Xo94g63SNKoLynsmd2ij0xQWPRv4/exec";
 
 // ====================================================
 //  状態変数
@@ -333,8 +333,8 @@ function startAutoScan() {
 //  スキャン実行（メイン処理）
 // ====================================================
 async function doScan() {
-  if (isScanning) return;                    // 前の処理が終わるまで待つ
-  if (!video.videoWidth || !video.paused === false) return; // 動画未準備
+  if (isScanning) return;                 // 前の処理が終わるまで待つ
+  if (!video.videoWidth || video.paused) return; // 動画未準備
 
   isScanning = true;
   guide.classList.add("scanning");
@@ -602,11 +602,14 @@ function flashContainer(cls) {
 
 // ====================================================
 //  GAS POST（共通）
+//  ★ CORS対策：Content-Typeヘッダーを付けない
+//  Content-Type: application/json を付けると
+//  OPTIONSプリフライトが発生 → GASが未対応 → Failed to fetch
+//  省略すると text/plain 扱いになりプリフライトが飛ばない
 // ====================================================
 function postToGas(body) {
   return fetch(API, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
 }
