@@ -47,7 +47,7 @@ h2 {
 video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 /* ガイド枠 */
@@ -226,6 +226,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
   <button class="btn-camera" id="btnCamera" onclick="startCamera()">📷 カメラ起動</button>
 
+  <!-- デバッグ：切り出し確認プレビュー（確認後に削除可） -->
+  <div id="debugArea" style="display:none;margin:8px 0;text-align:center">
+    <div style="font-size:11px;color:#888;margin-bottom:4px">▼ OCRに送っている画像（ガイド枠内）</div>
+    <canvas id="debugCanvas" style="max-width:100%;border:1px solid #ccc;border-radius:6px"></canvas>
+  </div>
+
   <div class="part-display" id="partDisplay">----</div>
 
   <div class="info-row">
@@ -375,74 +381,74 @@ async function doScan() {
 
 // ====================================================
 //  ガイド枠内の画像をキャプチャ
-//  ★ object-fit:cover 補正済み
+//  object-fit:contain 前提のシンプル正確版
 //
-//  object-fit:cover の仕組み：
-//    動画本来のアスペクト比を保ったまま表示枠を「はみ出して」拡大し
-//    中央配置するため、動画の上下または左右が見切れる。
-//    → HTML座標を動画ピクセル座標に変換するとき
-//      この「はみ出し量(オフセット)」を補正しないとズレる。
+//  contain = 動画全体が枠内に収まるよう縮小（余白は黒帯）
+//  → 動画の左上(0,0)は必ず表示枠の左上 or 黒帯の端に来る
+//  → スケール・オフセット計算が単純で確実
 // ====================================================
 function captureGuideArea() {
   if (!video.videoWidth || !video.videoHeight) return null;
 
-  const vw = video.videoWidth;   // 動画の実ピクセル幅
-  const vh = video.videoHeight;  // 動画の実ピクセル高さ
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
 
-  // 動画要素の表示サイズ（CSS px）
   const vrect = video.getBoundingClientRect();
   const dispW = vrect.width;
   const dispH = vrect.height;
 
-  // ---- object-fit:cover の補正計算 ----
-  // coverは「短い辺を表示枠に合わせて拡大」するので
-  // 動画と表示枠のアスペクト比を比較してスケールを決める
-  const videoAspect = vw / vh;
-  const dispAspect  = dispW / dispH;
+  // object-fit:contain のスケール計算
+  // 動画全体が収まる最大スケール（縦横で小さい方が基準）
+  const scaleW = dispW / vw;
+  const scaleH = dispH / vh;
+  const scale  = Math.min(scaleW, scaleH);
 
-  let scale, offsetX, offsetY;
+  // 実際に動画が描画される領域（黒帯を除いた部分）
+  const drawW = vw * scale;
+  const drawH = vh * scale;
 
-  if (videoAspect > dispAspect) {
-    // 動画が横長 → 高さ基準でスケール、左右がはみ出す
-    scale   = dispH / vh;
-    offsetX = (dispW - vw * scale) / 2;  // 負の値（左にはみ出た量）
-    offsetY = 0;
-  } else {
-    // 動画が縦長 → 幅基準でスケール、上下がはみ出す
-    scale   = dispW / vw;
-    offsetX = 0;
-    offsetY = (dispH - vh * scale) / 2;  // 負の値（上にはみ出た量）
-  }
+  // 黒帯の量（中央配置なので左右・上下で均等に分かれる）
+  const padX = (dispW - drawW) / 2;
+  const padY = (dispH - drawH) / 2;
 
-  // ガイド枠の表示座標をビデオ要素基準に変換
+  // ガイド枠の表示座標（video要素左上基準）
   const grect = guide.getBoundingClientRect();
   const gLeft = grect.left - vrect.left;
   const gTop  = grect.top  - vrect.top;
 
-  // 表示座標 → 動画ピクセル座標（offsetを引いてscaleで割る）
-  const sx = (gLeft - offsetX) / scale;
-  const sy = (gTop  - offsetY) / scale;
-  const sw = grect.width  / scale;
-  const sh = grect.height / scale;
+  // 黒帯を引いて動画描画領域内の座標に変換 → 動画ピクセルに変換
+  const sx = (gLeft - padX) / scale;
+  const sy = (gTop  - padY) / scale;
+  const sw = grect.width    / scale;
+  const sh = grect.height   / scale;
 
-  // 安全チェック（範囲外クランプ）
+  // 範囲クランプ
   const csx = Math.max(0, Math.round(sx));
   const csy = Math.max(0, Math.round(sy));
   const csw = Math.min(vw - csx, Math.round(sw));
   const csh = Math.min(vh - csy, Math.round(sh));
-  if (csw <= 0 || csh <= 0) return null;
+  if (csw <= 10 || csh <= 10) return null;
 
-  // 切り出しcanvas（動画ピクセルそのままの解像度）
+  // 切り出し
   const crop = document.createElement("canvas");
   crop.width  = csw;
   crop.height = csh;
   const ctx = crop.getContext("2d");
   ctx.drawImage(video, csx, csy, csw, csh, 0, 0, csw, csh);
 
-  // 画像前処理（コントラスト強化）
+  // 画像前処理
   enhanceImage(ctx, csw, csh);
 
-  // JPEG品質0.85
+  // デバッグ：切り出し結果をプレビュー表示
+  const dbg = document.getElementById("debugCanvas");
+  const dbgArea = document.getElementById("debugArea");
+  if (dbg) {
+    dbg.width  = csw;
+    dbg.height = csh;
+    dbg.getContext("2d").drawImage(crop, 0, 0);
+    dbgArea.style.display = "block";
+  }
+
   return crop
     .toDataURL("image/jpeg", 0.85)
     .replace(/^data:image\/jpeg;base64,/, "");
