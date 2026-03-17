@@ -122,7 +122,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 // ============================================================
 //  ★ デプロイURLをここに貼る
 // ============================================================
-var API = "https://script.google.com/macros/s/AKfycbwXd7g5ukFOkMU8on6zXjLM8FuP40d9PtjWkO9QRHTFjWKFGpOukOFKGszgTGN3ryTf/exec";
+var API = "https://script.google.com/macros/s/AKfycbyeio7OOFDV0CFlplpuvm44UPA0ANukRmnmwi-bteh51T6T6Fd6leyTI6WmCjyFAWRw/exec";
 
 // ============================================================
 //  状態変数
@@ -295,9 +295,10 @@ function capture() {
   // 論理ピクセル → 動画ピクセル（回転補正）
   var sx, sy, sw, sh;
   if (rotated) {
-    // 時計回り90度の場合：論理(x,y,w,h) → 動画(y, logW-x-w, h, w)
-    sx = Math.round(gly);
-    sy = Math.round(logW - glx - glw);
+    // iOSの横動画は時計回り90度で縦に見える
+    // 時計回り90度の逆変換：論理(x,y,w,h) → 動画(logH-y-h, x, h, w)
+    sx = Math.round(logH - gly - glh);
+    sy = Math.round(glx);
     sw = Math.round(glh);
     sh = Math.round(glw);
   } else {
@@ -314,11 +315,11 @@ function capture() {
   // 切り出し（回転時は正立に戻す）
   var crop = document.createElement("canvas");
   if (rotated) {
-    crop.width  = sh;  // 回転後の幅はshになる
+    crop.width  = sh;  // 時計回り90度後：元sh→width, sw→height
     crop.height = sw;
     var rc = crop.getContext("2d");
-    rc.translate(0, sw);
-    rc.rotate(-Math.PI / 2);
+    rc.translate(sh, 0);
+    rc.rotate(Math.PI / 2);
     rc.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
   } else {
     crop.width = sw; crop.height = sh;
