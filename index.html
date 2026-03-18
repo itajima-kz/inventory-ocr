@@ -336,87 +336,106 @@ function doScanTick() {
 }
 
 // ============================================================
-//  画像キャプチャ（iOS縦持ち完全対応版）
+//  画像キャプチャ（iOS縦持ち完全対応・新方式）
 //
-//  iOSの問題:
-//    縦持ちで撮影しても videoWidth > videoHeight（横動画）になる。
-//    さらにトラックの getSettings().width/height も横サイズを返す。
-//    正しい向きは ImageCapture API または screen.orientation で判定する。
+//  【根本的な問題】
+//    iOSのカメラは縦持ちでも videoWidth > videoHeight の横動画を返す。
+//    これはブラウザが変換していないネイティブの回転状態で、
+//    座標変換で対処しようとすると機種・OSバージョンで挙動が異なり不安定。
 //
-//  対策:
-//    ① MediaStreamTrack.getSettings() の width/height で実動画サイズ取得
-//    ② window.innerWidth < window.innerHeight（縦持ち）かつ vw > vh（横動画）
-//       → iOSが時計回り90度で送っていると判断して回転補正
-//    ③ それ以外は回転なしで処理（PC・Android・横持ちiOS）
+//  【新方式の考え方】
+//    ① video全体を「一旦Canvasに等倍で描く」（drawImage全体）
+//    ② その時点でCSSの object-fit:cover と同じ見た目になっているか確認
+//    ③ iOSで縦持ち＆横動画の場合、Canvas上では90度回転した画像になっている
+//       → Canvas上で反時計回り90度に回して正立させる
+//    ④ 正立したCanvas上で「ガイド枠の比率」で切り出す
+//       （ピクセル座標計算は一切使わず、比率だけで切り出すので誤差なし）
+//    ⑤ ガイド枠の比率 = guide.getBoundingClientRect() / video.getBoundingClientRect()
+//
+//  【回転判定】
+//    - 画面縦持ち（window.innerHeight > window.innerWidth）
+//    - かつ動画が横（vw > vh）
+//    → iOSの縦持ち横動画と確定、回転補正を実施
+//    - PC・Android・横持ちiOS は補正なし
 // ============================================================
 function capture() {
   var vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
-  // ---- 回転判定 ----
-  // 画面が縦（portrait）かつ動画が横（landscape）の場合だけ回転補正する
+  // ---- ① 回転判定 ----
   var screenPortrait = window.innerHeight > window.innerWidth;
   var videoLandscape = vw > vh;
-  // iOS縦持ち = portrait && landscape動画
-  var needRotate = screenPortrait && videoLandscape;
+  var needRotate     = screenPortrait && videoLandscape;
+  // needRotate=true の時: iOSが時計回り90度で送っている → 反時計回り90度で正立
 
-  // ---- object-fit:cover のスケール・オフセット計算 ----
+  // ---- ② video全体をCanvasに描く ----
+  // 正立後の幅・高さ（回転する場合は vw と vh を入れ替え）
+  var cw = needRotate ? vh : vw;
+  var ch = needRotate ? vw : vh;
+
+  var full = document.createElement("canvas");
+  full.width  = cw;
+  full.height = ch;
+  var fc = full.getContext("2d");
+
+  if (needRotate) {
+    // 反時計回り90度: translate(0, vw) → rotate(-90deg) → drawImage
+    fc.translate(0, vw);
+    fc.rotate(-Math.PI / 2);
+    fc.drawImage(video, 0, 0, vw, vh);
+  } else {
+    fc.drawImage(video, 0, 0, vw, vh);
+  }
+  // この時点で full には正立した画像全体が入っている
+
+  // ---- ③ ガイド枠の比率を取得してCanvasから切り出す ----
+  // video要素とguide要素のCSS座標から比率を計算
   var vrect = video.getBoundingClientRect();
-  var dispW = vrect.width, dispH = vrect.height;
+  var gr    = guide.getBoundingClientRect();
 
-  // 回転補正がある場合は「論理的な縦横」を入れ替える
-  var logW = needRotate ? vh : vw;  // 正立後の幅
-  var logH = needRotate ? vw : vh;  // 正立後の高さ
+  // video表示エリアに対するguideの相対位置（比率）
+  var ratioX = (gr.left - vrect.left) / vrect.width;
+  var ratioY = (gr.top  - vrect.top)  / vrect.height;
+  var ratioW = gr.width  / vrect.width;
+  var ratioH = gr.height / vrect.height;
 
-  var scale = Math.max(dispW / logW, dispH / logH);
-  var overX = (logW * scale - dispW) / 2;
-  var overY = (logH * scale - dispH) / 2;
+  // object-fit:cover の影響で動画全体がvideoボックスより大きい場合を考慮
+  // CSS表示上の「動画全体」サイズを、object-fit:coverの拡大率から逆算
+  var dispAspect  = vrect.width / vrect.height;   // 表示枠のアスペクト比
+  var videoAspect = cw / ch;                       // 正立後の動画アスペクト比
 
-  // ガイド枠のCSS座標 → 論理ピクセル座標（正立ベース）
-  var gr  = guide.getBoundingClientRect();
-  var glx = (gr.left - vrect.left + overX) / scale;
-  var gly = (gr.top  - vrect.top  + overY) / scale;
-  var glw = gr.width  / scale;
-  var glh = gr.height / scale;
-
-  // 論理ピクセル → 動画ピクセル（回転補正逆変換）
-  var sx, sy, sw, sh;
-  if (needRotate) {
-    // 時計回り90度で届いているので逆変換（反時計回り90度）
-    // 論理(glx, gly, glw, glh) → 動画座標
-    // 時計90度の逆: 動画x = gly, 動画y = logW - glx - glw
-    sx = Math.round(gly);
-    sy = Math.round(logW - glx - glw);
-    sw = Math.round(glh);
-    sh = Math.round(glw);
+  var coverScale, coverOffX, coverOffY;
+  if (videoAspect > dispAspect) {
+    // 動画が横長 → 高さに合わせてcoverしてるので左右がはみ出る
+    coverScale = vrect.height / ch;
+    coverOffX  = (cw * coverScale - vrect.width) / 2;
+    coverOffY  = 0;
   } else {
-    sx = Math.round(glx); sy = Math.round(gly);
-    sw = Math.round(glw); sh = Math.round(glh);
+    // 動画が縦長 → 幅に合わせてcoverしてるので上下がはみ出る
+    coverScale = vrect.width / cw;
+    coverOffX  = 0;
+    coverOffY  = (ch * coverScale - vrect.height) / 2;
   }
 
-  // クランプ（範囲外防止）
-  sx = Math.max(0, Math.min(vw - 1, sx));
-  sy = Math.max(0, Math.min(vh - 1, sy));
-  sw = Math.max(1, Math.min(vw - sx, sw));
-  sh = Math.max(1, Math.min(vh - sy, sh));
+  // ガイド枠のCSS比率 → full Canvas上のピクセル座標
+  var sx = Math.round((ratioX * vrect.width  + coverOffX) / coverScale);
+  var sy = Math.round((ratioY * vrect.height + coverOffY) / coverScale);
+  var sw = Math.round(ratioW * vrect.width  / coverScale);
+  var sh = Math.round(ratioH * vrect.height / coverScale);
 
-  // ---- Canvas に切り出し（回転補正して正立画像を生成） ----
+  // クランプ
+  sx = Math.max(0, Math.min(cw - 1, sx));
+  sy = Math.max(0, Math.min(ch - 1, sy));
+  sw = Math.max(1, Math.min(cw - sx, sw));
+  sh = Math.max(1, Math.min(ch - sy, sh));
+
+  // ---- ④ 切り出し ----
   var crop = document.createElement("canvas");
-  if (needRotate) {
-    // 正立後サイズ：切り出し(sw×sh)を時計回り90度回転 → 幅sh, 高さsw
-    crop.width  = sh;
-    crop.height = sw;
-    var rc = crop.getContext("2d");
-    rc.translate(sh, 0);
-    rc.rotate(Math.PI / 2);
-    rc.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-  } else {
-    crop.width  = sw;
-    crop.height = sh;
-    crop.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-  }
+  crop.width  = sw;
+  crop.height = sh;
+  crop.getContext("2d").drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  // 長辺1000px上限にリサイズ
+  // ---- ⑤ 長辺1000px上限にリサイズ ----
   var MAX = 1000, out = crop;
   if (crop.width > MAX || crop.height > MAX) {
     var r = Math.min(MAX / crop.width, MAX / crop.height);
@@ -426,7 +445,7 @@ function capture() {
     out.getContext("2d").drawImage(crop, 0, 0, out.width, out.height);
   }
 
-  // デバッグプレビュー
+  // ---- デバッグプレビュー ----
   var dbg = document.getElementById("debugCanvas");
   document.getElementById("debugWrap").style.display = "block";
   dbg.width  = out.width;
@@ -436,8 +455,8 @@ function capture() {
   var b64 = out.toDataURL("image/jpeg", 0.85).replace(/^data:image\/jpeg;base64,/, "");
   setStatus(
     "送信: " + out.width + "x" + out.height
-    + " 元:" + vw + "x" + vh
-    + (needRotate ? " [回転補正]" : " [回転なし]")
+    + " 元動画:" + vw + "x" + vh
+    + (needRotate ? " [縦持ち補正]" : " [補正なし]")
     + " b64:" + b64.length,
     "info"
   );
