@@ -121,18 +121,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <div class="part-hint" id="partHint">OCR読み取り後、手修正も可能です</div>
   </div>
 
-  <div class="info-row"><span class="info-lbl">品名</span><span class="info-val" id="infoName">—</span></div>
-  <div class="info-row"><span class="info-lbl">サイズ</span><span class="info-val" id="infoSize">—</span></div>
-
-  <div class="qty-row">
-    <label for="qty">数量</label>
-    <input id="qty" type="number" inputmode="numeric" placeholder="0" min="0">
-  </div>
-
-  <!-- ▼ プルダウン追加エリア -->
+  <!-- ▼ 登録情報枠 -->
   <div class="dropdown-section">
     <h3>登録情報</h3>
     <div class="dd-row">
+
+      <div class="dd-item">
+        <span class="info-lbl">品名</span><span class="info-val" id="infoName">—</span>
+      </div>
+      <div class="dd-item">
+        <span class="info-lbl">サイズ</span><span class="info-val" id="infoSize">—</span>
+      </div>
+
+      <div class="dd-item">
+        <label for="qty">数量</label>
+        <input id="qty" type="number" inputmode="numeric" placeholder="0" min="0"
+               style="width:120px;padding:10px;font-size:22px;font-weight:700;border:2px solid #ccc;border-radius:10px;text-align:center;outline:none;">
+      </div>
+
       <div class="dd-item">
         <label for="selDept">棚卸部署</label>
         <select id="selDept"><option value="">— 選択 —</option></select>
@@ -379,9 +385,10 @@ function capture() {
   var fc = full.getContext("2d");
 
   if (needRotate) {
-    // 反時計回り90度: translate(0, vw) → rotate(-90deg) → drawImage
-    fc.translate(0, vw);
-    fc.rotate(-Math.PI / 2);
+    // 時計回り90度: translate(ch, 0) → rotate(+90deg) → drawImage
+    // iOSは縦持ちでも時計回り90度の横動画を送るので、+90度で正立させる
+    fc.translate(ch, 0);
+    fc.rotate(Math.PI / 2);
     fc.drawImage(video, 0, 0, vw, vh);
   } else {
     fc.drawImage(video, 0, 0, vw, vh);
