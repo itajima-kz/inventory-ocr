@@ -98,6 +98,27 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 </head>
 <body>
+
+<!-- ▼ 登録完了モーダル -->
+<div id="modalOverlay" style="
+  display:none; position:fixed; inset:0;
+  background:rgba(0,0,0,0.55); z-index:1000;
+  align-items:center; justify-content:center;">
+  <div style="
+    background:#fff; border-radius:20px; padding:32px 28px;
+    max-width:320px; width:88%; text-align:center;
+    box-shadow:0 12px 40px rgba(0,0,0,0.25);">
+    <div style="font-size:52px; margin-bottom:12px;">✅</div>
+    <div id="modalMsg" style="font-size:20px; font-weight:800; color:#1a6e1a; margin-bottom:8px;">登録しました！</div>
+    <div id="modalSub" style="font-size:13px; color:#666; margin-bottom:24px;"></div>
+    <button onclick="closeModal()" style="
+      width:100%; padding:14px; font-size:17px; font-weight:700;
+      background:linear-gradient(135deg,#00b09b,#5cb85c);
+      border:none; border-radius:12px; color:#fff; cursor:pointer;">OK</button>
+  </div>
+</div>
+<!-- ▲ 登録完了モーダル -->
+
 <div class="container" id="container">
   <h2>棚卸 OCR</h2>
 
@@ -175,7 +196,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 // ============================================================
 //  ★ デプロイURLをここに貼る
 // ============================================================
-var API = "https://script.google.com/macros/s/AKfycbzUFqgQNVECbf48AUKRQcMF8HMI84DWZZC6dlmogJeWXwwiEHv3X2PUJVnvxB3IRoS-/exec";
+var API = "https://script.google.com/a/macros/kaku-ichi.co.jp/s/AKfycbyzNTSnFtpMzTz5bK-13Ll8hb1N52tqOkgn4ZrncJD32CDZuB2PUwXDGGgRpzuYlM9v/exec";
 
 // ============================================================
 //  状態変数
@@ -538,8 +559,8 @@ function doSave() {
   var person = document.getElementById("selPerson").value;
   var stock  = document.getElementById("selStock").value;
 
-  if (!currentPart)                              { setStatus("図番が未入力です", "err"); return; }
-  if (!qty || isNaN(qty) || Number(qty) < 0)    { setStatus("正しい数量を入力してください", "err"); return; }
+  if (!currentPart)                           { setStatus("図番が未入力です", "err"); return; }
+  if (!qty || isNaN(qty) || Number(qty) < 0) { setStatus("正しい数量を入力してください", "err"); return; }
 
   btnSave.disabled = true;
   setStatus("登録中...", "info");
@@ -560,18 +581,59 @@ function doSave() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
-        flash("flash-ok");
-        document.getElementById("successMsg").textContent = "✓ 登録完了！";
-        setStatus("登録しました", "ok");
+        // 登録履歴に追加
         addHistory(currentPart, currentName, qty);
-        document.getElementById("qty").value = "";
-        setTimeout(function() { document.getElementById("successMsg").textContent = ""; }, 2500);
+        // モーダル表示
+        var subMsg = d.updated
+          ? "（既存データを上書きしました）"
+          : "（新規登録）";
+        openModal("登録しました！", subMsg);
       } else {
-        setStatus("登録失敗: " + (d.message || "不明"), "err");
+        // 異常終了: 入力値保持のままエラー表示
+        setStatus("⚠️ 登録失敗: " + (d.message || "不明") + "　— 内容を確認して再度登録してください", "err");
         btnSave.disabled = false;
       }
     })
-    .catch(function(e) { setStatus("通信エラー: " + e.message, "err"); btnSave.disabled = false; });
+    .catch(function(e) {
+      setStatus("⚠️ 通信エラー: " + e.message + "　— ネットワークを確認して再度登録してください", "err");
+      btnSave.disabled = false;
+    });
+}
+
+// モーダル表示
+function openModal(msg, sub) {
+  document.getElementById("modalMsg").textContent = msg;
+  document.getElementById("modalSub").textContent = sub || "";
+  var ov = document.getElementById("modalOverlay");
+  ov.style.display = "flex";
+}
+
+// モーダルOK → 全クリアして再スキャン待機
+function closeModal() {
+  document.getElementById("modalOverlay").style.display = "none";
+  // 全入力クリア
+  currentPart = null; currentName = ""; currentSize = "";
+  partInput.value = "----";
+  partInput.className = "";
+  partInput.setAttribute("readonly", true);
+  document.getElementById("partHint").textContent = "OCR読み取り後、手修正も可能です";
+  document.getElementById("infoName").textContent  = "—";
+  document.getElementById("infoSize").textContent  = "—";
+  document.getElementById("qty").value             = "";
+  document.getElementById("selDept").value         = "";
+  document.getElementById("selPerson").value       = "";
+  document.getElementById("selStock").value        = "";
+  document.getElementById("successMsg").textContent = "";
+  document.getElementById("debugWrap").style.display = "none";
+  setDiag("");
+  setStatus("カメラを起動してください");
+  // ボタン状態リセット
+  btnSave.disabled = true;
+  btnRescan.style.display = "none";
+  btnCamera.style.display = "block";
+  btnCamera.disabled = false;
+  // カメラ停止（念のため）
+  stopCamera();
 }
 
 // ============================================================
