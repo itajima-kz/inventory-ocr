@@ -385,39 +385,11 @@ function capture() {
   var vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
-  // ---- ① 回転角の取得と補正量の決定 ----
-  //
-  //  iOSのカメラはネイティブの「横向き」を基準に動画を出力する。
-  //  縦持ち(portrait)時にデバイスを縦に持つと:
-  //    - videoWidth > videoHeight（横動画のまま）
-  //    - window.orientation = 0（または portrait）
-  //  この場合、動画は時計回り90度回転した状態で届く。
-  //
-  //  angle=0   (portrait正立):     動画は時計回り90度ずれ  → 反時計回り90度で補正
-  //  angle=90  (landscape 右回転): 動画はそのまま正立      → 補正不要
-  //  angle=180 (portrait逆さま):   動画は反時計回り90度ずれ → 時計回り90度で補正
-  //  angle=270 (landscape 左回転): 動画は180度ずれ         → 180度補正
-  //
-  //  ※ Androidはブラウザ側で補正済みのため videoWidth/Height が正立状態と一致する。
-  //    そのため「動画が横(vw>vh)かつ画面が縦(portrait)」の場合のみ補正を適用する。
-
   var angle = getOrientationAngle();
   var screenPortrait = window.innerHeight > window.innerWidth;
-  var videoLandscape = vw > vh;
-
-  // iOSかどうかの判定（Androidはブラウザ補正済みなので不要）
   var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent);
 
-  // 補正角度（度数）: iOS かつ 動画が横 かつ 画面が縦 の場合のみ補正
-  var rotateDeg = 0;
-  if (isIOS && videoLandscape && screenPortrait) {
-    // angle=0 (縦持ち正立): iOSは反時計90度ずれで送る → +90度(時計回り)で正立
-    if      (angle === 0)   rotateDeg =  90;
-    else if (angle === 180) rotateDeg = -90;
-    else if (angle === 270) rotateDeg = 180;
-  }
-
-  // ---- 診断情報を画面上部に常時表示 ----
+  // ---- 診断情報を常時表示 ----
   var diagEl = document.getElementById("diagInfo");
   if (diagEl) {
     diagEl.textContent =
@@ -425,44 +397,23 @@ function capture() {
       + " | angle:" + angle
       + " | iOS:" + isIOS
       + " | portrait:" + screenPortrait
-      + " | 補正:" + rotateDeg + "度";
+      + " | 補正:なし";
     diagEl.style.display = "block";
   }
 
-  var rotateRad = rotateDeg * Math.PI / 180;
-
-  // ---- ② video全体を正立Canvasに描く ----
-  var cw, ch;
-  if (rotateDeg === 90 || rotateDeg === -90) {
-    cw = vh; ch = vw;  // 90度回転で縦横入れ替え
-  } else {
-    cw = vw; ch = vh;
-  }
-
+  // ---- video全体をCanvasにそのまま描く（補正なし） ----
+  // iOS Safariはブラウザ側で回転補正済みの動画を渡すため、
+  // こちらで回転処理は行わない。
   var full = document.createElement("canvas");
-  full.width  = cw;
-  full.height = ch;
-  var fc = full.getContext("2d");
+  full.width  = vw;
+  full.height = vh;
+  full.getContext("2d").drawImage(video, 0, 0, vw, vh);
 
-  if (rotateDeg !== 0) {
-    // Canvas の中心に移動して回転し、元に戻す
-    fc.translate(cw / 2, ch / 2);
-    fc.rotate(rotateRad);
-    // 90度回転の場合は描画先サイズも入れ替える
-    if (rotateDeg === 90 || rotateDeg === -90) {
-      fc.drawImage(video, -vh / 2, -vw / 2, vh, vw);
-    } else {
-      fc.drawImage(video, -vw / 2, -vh / 2, vw, vh);
-    }
-  } else {
-    fc.drawImage(video, 0, 0, vw, vh);
-  }
-  // この時点で full には正立した画像全体が入っている
-
-  // ---- ③ ガイド枠の比率でCanvasから切り出す ----
+  // ---- ガイド枠の比率でCanvasから切り出す ----
   var vrect = video.getBoundingClientRect();
   var gr    = guide.getBoundingClientRect();
 
+  // video表示エリアに対するguideの相対位置（0〜1の比率）
   var ratioX = (gr.left - vrect.left) / vrect.width;
   var ratioY = (gr.top  - vrect.top)  / vrect.height;
   var ratioW = gr.width  / vrect.width;
@@ -470,36 +421,40 @@ function capture() {
 
   // object-fit:cover のスケール・オフセット逆算
   var dispAspect  = vrect.width / vrect.height;
-  var videoAspect = cw / ch;
+  var videoAspect = vw / vh;
 
   var coverScale, coverOffX, coverOffY;
   if (videoAspect > dispAspect) {
-    coverScale = vrect.height / ch;
-    coverOffX  = (cw * coverScale - vrect.width) / 2;
+    // 動画が表示枠より横長 → 高さ基準でcoverし左右がはみ出る
+    coverScale = vrect.height / vh;
+    coverOffX  = (vw * coverScale - vrect.width) / 2;
     coverOffY  = 0;
   } else {
-    coverScale = vrect.width / cw;
+    // 動画が表示枠より縦長 → 幅基準でcoverし上下がはみ出る
+    coverScale = vrect.width / vw;
     coverOffX  = 0;
-    coverOffY  = (ch * coverScale - vrect.height) / 2;
+    coverOffY  = (vh * coverScale - vrect.height) / 2;
   }
 
+  // ガイド枠のCSS比率 → fullCanvas上のピクセル座標
   var sx = Math.round((ratioX * vrect.width  + coverOffX) / coverScale);
   var sy = Math.round((ratioY * vrect.height + coverOffY) / coverScale);
   var sw = Math.round(ratioW * vrect.width  / coverScale);
   var sh = Math.round(ratioH * vrect.height / coverScale);
 
-  sx = Math.max(0, Math.min(cw - 1, sx));
-  sy = Math.max(0, Math.min(ch - 1, sy));
-  sw = Math.max(1, Math.min(cw - sx, sw));
-  sh = Math.max(1, Math.min(ch - sy, sh));
+  // クランプ
+  sx = Math.max(0, Math.min(vw - 1, sx));
+  sy = Math.max(0, Math.min(vh - 1, sy));
+  sw = Math.max(1, Math.min(vw - sx, sw));
+  sh = Math.max(1, Math.min(vh - sy, sh));
 
-  // ---- ④ 切り出し ----
+  // ---- 切り出し ----
   var crop = document.createElement("canvas");
   crop.width  = sw;
   crop.height = sh;
   crop.getContext("2d").drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  // ---- ⑤ 長辺1000px上限にリサイズ ----
+  // ---- 長辺1000px上限にリサイズ ----
   var MAX = 1000, out = crop;
   if (crop.width > MAX || crop.height > MAX) {
     var r = Math.min(MAX / crop.width, MAX / crop.height);
@@ -517,13 +472,6 @@ function capture() {
   dbg.getContext("2d").drawImage(out, 0, 0);
 
   var b64 = out.toDataURL("image/jpeg", 0.85).replace(/^data:image\/jpeg;base64,/, "");
-  setStatus(
-    "送信:" + out.width + "x" + out.height
-    + " 動画:" + vw + "x" + vh
-    + " angle:" + angle
-    + (rotateDeg !== 0 ? " [" + rotateDeg + "度補正]" : " [補正なし]"),
-    "info"
-  );
   return b64;
 }
 
