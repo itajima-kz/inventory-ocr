@@ -101,6 +101,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 <div class="container" id="container">
   <h2>棚卸 OCR</h2>
 
+  <!-- 診断情報エリア（常時表示） -->
+  <div id="diagInfo" style="display:none; background:#1a1a2e; color:#00ff88; font-size:11px; font-family:monospace; padding:6px 10px; border-radius:8px; margin-bottom:8px; word-break:break-all; line-height:1.6;"></div>
+
   <div class="camera-wrap" id="cameraWrap">
     <video id="video" autoplay playsinline muted></video>
     <div class="guide" id="guide"></div>
@@ -408,11 +411,22 @@ function capture() {
   // 補正角度（度数）: iOS かつ 動画が横 かつ 画面が縦 の場合のみ補正
   var rotateDeg = 0;
   if (isIOS && videoLandscape && screenPortrait) {
-    // angle=0 が通常の縦持ち → 時計回り90度ずれているので -90度（反時計）で正立
-    if      (angle === 0)   rotateDeg = -90;
-    else if (angle === 180) rotateDeg =  90;
+    // angle=0 (縦持ち正立): iOSは反時計90度ずれで送る → +90度(時計回り)で正立
+    if      (angle === 0)   rotateDeg =  90;
+    else if (angle === 180) rotateDeg = -90;
     else if (angle === 270) rotateDeg = 180;
-    // angle===90 はlandscapeなので補正不要（ここには来ない想定）
+  }
+
+  // ---- 診断情報を画面上部に常時表示 ----
+  var diagEl = document.getElementById("diagInfo");
+  if (diagEl) {
+    diagEl.textContent =
+      "動画:" + vw + "x" + vh
+      + " | angle:" + angle
+      + " | iOS:" + isIOS
+      + " | portrait:" + screenPortrait
+      + " | 補正:" + rotateDeg + "度";
+    diagEl.style.display = "block";
   }
 
   var rotateRad = rotateDeg * Math.PI / 180;
