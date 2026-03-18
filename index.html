@@ -196,7 +196,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 // ============================================================
 //  ★ デプロイURLをここに貼る
 // ============================================================
-var API = "https://script.google.com/macros/s/AKfycbxbM2CXlXIob28-3nvt39cKBCT4ugFt53X_BnviU0LhNAkZi-UNNDEZpIkoZa49TMOv/exec";
+var API = "https://script.google.com/macros/s/AKfycbwKeeen7m8PCJVoW7t0LR5233M-_ClrKspzCUnfzaz1OoBEsJdHD5BCaJe5_JzTubUn/exec";
 
 // ============================================================
 //  状態変数
@@ -511,10 +511,19 @@ function displayPart(code) {
 function applySearchResult(data) {
   var found = data.inMaster !== undefined ? data.inMaster : data.found;
   if (found) {
+    // 類似文字補正で一致した場合は図番表示も補正後のものに更新
+    if (data.fuzzy && data.part) {
+      currentPart = data.part;
+      partInput.value = data.part;
+    }
     currentName = data.name || ""; currentSize = data.size || "";
     document.getElementById("infoName").textContent = data.name || "—";
     document.getElementById("infoSize").textContent = data.size || "—";
-    setStatus("図番確認 ✓  数量を入力して登録してください", "ok");
+    var reason = data.fuzzyReason ? "（" + data.fuzzyReason + "）" : "（類似文字補正）";
+    var msg = data.fuzzy
+      ? "図番確認 ✓ " + reason + "  数量を入力してください"
+      : "図番確認 ✓  数量を入力して登録してください";
+    setStatus(msg, "ok");
   } else {
     currentName = ""; currentSize = "";
     document.getElementById("infoName").textContent = "（マスタ未登録）";
