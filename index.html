@@ -359,78 +359,121 @@ function doScanTick() {
 //    ⑤ ガイド枠の比率 = guide.getBoundingClientRect() / video.getBoundingClientRect()
 //
 //  【回転判定】
-//    - 画面縦持ち（window.innerHeight > window.innerWidth）
-//    - かつ動画が横（vw > vh）
-//    → iOSの縦持ち横動画と確定、回転補正を実施
-//    - PC・Android・横持ちiOS は補正なし
+//    screen.orientation.angle / window.orientation で実角度を取得し
+//    4方向（0°/90°/180°/270°）すべてに対応する
 // ============================================================
+
+// ---- デバイスの現在の回転角を取得（0 / 90 / 180 / 270） ----
+function getOrientationAngle() {
+  // screen.orientation.angle が使える場合はそちらを優先（Android・新iOS）
+  if (window.screen && window.screen.orientation && typeof window.screen.orientation.angle === "number") {
+    return window.screen.orientation.angle;
+  }
+  // window.orientation はiOS Safariでも動作（deprecated だが現時点で最も信頼性高い）
+  if (typeof window.orientation === "number") {
+    // window.orientation は -90/0/90/180 を返す → 0〜359に正規化
+    return ((window.orientation % 360) + 360) % 360;
+  }
+  // 取得不可の場合は画面比率で推定（PC等）
+  return 0;
+}
+
 function capture() {
   var vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
-  // ---- ① 回転判定 ----
+  // ---- ① 回転角の取得と補正量の決定 ----
+  //
+  //  iOSのカメラはネイティブの「横向き」を基準に動画を出力する。
+  //  縦持ち(portrait)時にデバイスを縦に持つと:
+  //    - videoWidth > videoHeight（横動画のまま）
+  //    - window.orientation = 0（または portrait）
+  //  この場合、動画は時計回り90度回転した状態で届く。
+  //
+  //  angle=0   (portrait正立):     動画は時計回り90度ずれ  → 反時計回り90度で補正
+  //  angle=90  (landscape 右回転): 動画はそのまま正立      → 補正不要
+  //  angle=180 (portrait逆さま):   動画は反時計回り90度ずれ → 時計回り90度で補正
+  //  angle=270 (landscape 左回転): 動画は180度ずれ         → 180度補正
+  //
+  //  ※ Androidはブラウザ側で補正済みのため videoWidth/Height が正立状態と一致する。
+  //    そのため「動画が横(vw>vh)かつ画面が縦(portrait)」の場合のみ補正を適用する。
+
+  var angle = getOrientationAngle();
   var screenPortrait = window.innerHeight > window.innerWidth;
   var videoLandscape = vw > vh;
-  var needRotate     = screenPortrait && videoLandscape;
-  // needRotate=true の時: iOSが時計回り90度で送っている → 反時計回り90度で正立
 
-  // ---- ② video全体をCanvasに描く ----
-  // 正立後の幅・高さ（回転する場合は vw と vh を入れ替え）
-  var cw = needRotate ? vh : vw;
-  var ch = needRotate ? vw : vh;
+  // iOSかどうかの判定（Androidはブラウザ補正済みなので不要）
+  var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent);
+
+  // 補正角度（度数）: iOS かつ 動画が横 かつ 画面が縦 の場合のみ補正
+  var rotateDeg = 0;
+  if (isIOS && videoLandscape && screenPortrait) {
+    // angle=0 が通常の縦持ち → 時計回り90度ずれているので -90度（反時計）で正立
+    if      (angle === 0)   rotateDeg = -90;
+    else if (angle === 180) rotateDeg =  90;
+    else if (angle === 270) rotateDeg = 180;
+    // angle===90 はlandscapeなので補正不要（ここには来ない想定）
+  }
+
+  var rotateRad = rotateDeg * Math.PI / 180;
+
+  // ---- ② video全体を正立Canvasに描く ----
+  var cw, ch;
+  if (rotateDeg === 90 || rotateDeg === -90) {
+    cw = vh; ch = vw;  // 90度回転で縦横入れ替え
+  } else {
+    cw = vw; ch = vh;
+  }
 
   var full = document.createElement("canvas");
   full.width  = cw;
   full.height = ch;
   var fc = full.getContext("2d");
 
-  if (needRotate) {
-    // 時計回り90度: translate(ch, 0) → rotate(+90deg) → drawImage
-    // iOSは縦持ちでも時計回り90度の横動画を送るので、+90度で正立させる
-    fc.translate(ch, 0);
-    fc.rotate(Math.PI / 2);
-    fc.drawImage(video, 0, 0, vw, vh);
+  if (rotateDeg !== 0) {
+    // Canvas の中心に移動して回転し、元に戻す
+    fc.translate(cw / 2, ch / 2);
+    fc.rotate(rotateRad);
+    // 90度回転の場合は描画先サイズも入れ替える
+    if (rotateDeg === 90 || rotateDeg === -90) {
+      fc.drawImage(video, -vh / 2, -vw / 2, vh, vw);
+    } else {
+      fc.drawImage(video, -vw / 2, -vh / 2, vw, vh);
+    }
   } else {
     fc.drawImage(video, 0, 0, vw, vh);
   }
   // この時点で full には正立した画像全体が入っている
 
-  // ---- ③ ガイド枠の比率を取得してCanvasから切り出す ----
-  // video要素とguide要素のCSS座標から比率を計算
+  // ---- ③ ガイド枠の比率でCanvasから切り出す ----
   var vrect = video.getBoundingClientRect();
   var gr    = guide.getBoundingClientRect();
 
-  // video表示エリアに対するguideの相対位置（比率）
   var ratioX = (gr.left - vrect.left) / vrect.width;
   var ratioY = (gr.top  - vrect.top)  / vrect.height;
   var ratioW = gr.width  / vrect.width;
   var ratioH = gr.height / vrect.height;
 
-  // object-fit:cover の影響で動画全体がvideoボックスより大きい場合を考慮
-  // CSS表示上の「動画全体」サイズを、object-fit:coverの拡大率から逆算
-  var dispAspect  = vrect.width / vrect.height;   // 表示枠のアスペクト比
-  var videoAspect = cw / ch;                       // 正立後の動画アスペクト比
+  // object-fit:cover のスケール・オフセット逆算
+  var dispAspect  = vrect.width / vrect.height;
+  var videoAspect = cw / ch;
 
   var coverScale, coverOffX, coverOffY;
   if (videoAspect > dispAspect) {
-    // 動画が横長 → 高さに合わせてcoverしてるので左右がはみ出る
     coverScale = vrect.height / ch;
     coverOffX  = (cw * coverScale - vrect.width) / 2;
     coverOffY  = 0;
   } else {
-    // 動画が縦長 → 幅に合わせてcoverしてるので上下がはみ出る
     coverScale = vrect.width / cw;
     coverOffX  = 0;
     coverOffY  = (ch * coverScale - vrect.height) / 2;
   }
 
-  // ガイド枠のCSS比率 → full Canvas上のピクセル座標
   var sx = Math.round((ratioX * vrect.width  + coverOffX) / coverScale);
   var sy = Math.round((ratioY * vrect.height + coverOffY) / coverScale);
   var sw = Math.round(ratioW * vrect.width  / coverScale);
   var sh = Math.round(ratioH * vrect.height / coverScale);
 
-  // クランプ
   sx = Math.max(0, Math.min(cw - 1, sx));
   sy = Math.max(0, Math.min(ch - 1, sy));
   sw = Math.max(1, Math.min(cw - sx, sw));
@@ -461,10 +504,10 @@ function capture() {
 
   var b64 = out.toDataURL("image/jpeg", 0.85).replace(/^data:image\/jpeg;base64,/, "");
   setStatus(
-    "送信: " + out.width + "x" + out.height
-    + " 元動画:" + vw + "x" + vh
-    + (needRotate ? " [縦持ち補正]" : " [補正なし]")
-    + " b64:" + b64.length,
+    "送信:" + out.width + "x" + out.height
+    + " 動画:" + vw + "x" + vh
+    + " angle:" + angle
+    + (rotateDeg !== 0 ? " [" + rotateDeg + "度補正]" : " [補正なし]"),
     "info"
   );
   return b64;
