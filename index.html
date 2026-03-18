@@ -12,7 +12,7 @@ body { font-family: -apple-system, sans-serif; background: #e8edf5; min-height: 
 .container.flash-err { background: #ffd4d4; }
 h2 { text-align: center; font-size: 20px; font-weight: 700; color: #222; margin-bottom: 12px; }
 
-/* カメラ枠：縦横比を固定せずvideoに任せる */
+/* カメラ枠 */
 .camera-wrap { position: relative; width: 100%; border-radius: 10px; overflow: hidden; background: #111; margin-bottom: 8px; }
 video { width: 100%; display: block; max-height: 280px; object-fit: cover; }
 
@@ -37,9 +37,33 @@ video { width: 100%; display: block; max-height: 280px; object-fit: cover; }
 
 /* 数量 */
 .qty-row { margin: 10px 0 8px; display: flex; align-items: center; gap: 10px; }
-.qty-row label { font-size: 15px; color: #555; }
+.qty-row label { font-size: 15px; color: #555; white-space: nowrap; }
 .qty-row input { width: 120px; padding: 10px; font-size: 22px; font-weight: 700; border: 2px solid #ccc; border-radius: 10px; text-align: center; outline: none; }
 .qty-row input:focus { border-color: #4477ff; }
+
+/* プルダウンセクション */
+.dropdown-section { margin: 10px 0 8px; padding: 12px; background: #f8f9fc; border-radius: 12px; border: 1px solid #e0e4ef; }
+.dropdown-section h3 { font-size: 12px; color: #888; margin-bottom: 8px; font-weight: 600; letter-spacing: 0.5px; }
+.dd-row { display: flex; flex-direction: column; gap: 8px; }
+.dd-item { display: flex; align-items: center; gap: 8px; }
+.dd-item label { font-size: 13px; color: #555; min-width: 72px; white-space: nowrap; }
+.dd-item select {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 2px solid #dde1ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #222;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath fill='%23888' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+.dd-item select:focus { border-color: #4477ff; }
 
 /* ボタン */
 button { width: 100%; padding: 14px; font-size: 17px; font-weight: 700; border: none; border-radius: 12px; color: #fff; cursor: pointer; margin-top: 8px; transition: transform 0.1s, opacity 0.1s; }
@@ -105,8 +129,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <input id="qty" type="number" inputmode="numeric" placeholder="0" min="0">
   </div>
 
-  <button class="btn-save"   id="btnSave"   onclick="doSave()"       disabled>📦 登録</button>
-  <button class="btn-rescan" id="btnRescan" onclick="restartScan()"  style="display:none">🔄 再スキャン</button>
+  <!-- ▼ プルダウン追加エリア -->
+  <div class="dropdown-section">
+    <h3>登録情報</h3>
+    <div class="dd-row">
+      <div class="dd-item">
+        <label for="selDept">棚卸部署</label>
+        <select id="selDept"><option value="">— 選択 —</option></select>
+      </div>
+      <div class="dd-item">
+        <label for="selPerson">担当者</label>
+        <select id="selPerson"><option value="">— 選択 —</option></select>
+      </div>
+      <div class="dd-item">
+        <label for="selStock">在庫区分</label>
+        <select id="selStock"><option value="">— 選択 —</option></select>
+      </div>
+    </div>
+  </div>
+  <!-- ▲ プルダウン追加エリア ここまで -->
+
+  <button class="btn-save"   id="btnSave"   onclick="doSave()"      disabled>📦 登録</button>
+  <button class="btn-rescan" id="btnRescan" onclick="restartScan()" style="display:none">🔄 再スキャン</button>
 
   <div class="status" id="statusBar">カメラを起動してください</div>
   <div class="diag"   id="diagArea"></div>
@@ -159,17 +203,47 @@ function setDiag(msg) {
 }
 
 // ============================================================
+//  プルダウンデータ読み込み（画面起動時に自動実行）
+// ============================================================
+function loadDropdowns() {
+  fetch(API, { method: "POST", body: JSON.stringify({ type: "get_dropdowns" }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { console.warn("プルダウン取得失敗:", d.message); return; }
+      fillSelect("selDept",   d.depts   || []);
+      fillSelect("selPerson", d.persons || []);
+      fillSelect("selStock",  d.stocks  || []);
+    })
+    .catch(function(e) { console.warn("プルダウン通信エラー:", e.message); });
+}
+
+function fillSelect(id, items) {
+  var sel = document.getElementById(id);
+  // 既存の「— 選択 —」オプションを残してリセット
+  sel.innerHTML = '<option value="">— 選択 —</option>';
+  items.forEach(function(v) {
+    var opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+// ページ読み込み時にプルダウンを取得
+window.addEventListener("load", function() {
+  loadDropdowns();
+});
+
+// ============================================================
 //  カメラ起動
-//  iPhoneで縦長映像を取得するため aspectRatio で指定
 // ============================================================
 function startCamera() {
   setStatus("カメラ起動中...", "info");
   btnCamera.disabled = true;
   cameraReady = false;
 
-  // 試行順：縦長 → 標準 → 最小構成
   var constraints = [
-    { video: { facingMode: "environment", aspectRatio: { ideal: 0.5625 } } },  // 9:16
+    { video: { facingMode: "environment", aspectRatio: { ideal: 0.5625 } } },
     { video: { facingMode: "environment", width: { ideal: 720 }, height: { ideal: 1280 } } },
     { video: { facingMode: "environment" } }
   ];
@@ -204,7 +278,6 @@ function tryGetUserMedia(constraints, idx) {
       };
     })
     .catch(function() {
-      // 失敗したら次の制約で試みる
       tryGetUserMedia(constraints, idx + 1);
     });
 }
@@ -235,7 +308,6 @@ function doScanTick() {
   fetch(API, { method: "POST", body: JSON.stringify({ type: "ocr_search", image: b64 }) })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      // 診断情報を表示
       if (data.diag) setDiag(data.diag.diagText || JSON.stringify(data.diag));
 
       if (data.part) {
@@ -264,41 +336,57 @@ function doScanTick() {
 }
 
 // ============================================================
-//  画像キャプチャ（iOSの横動画回転対応）
+//  画像キャプチャ（iOS縦持ち完全対応版）
+//
+//  iOSの問題:
+//    縦持ちで撮影しても videoWidth > videoHeight（横動画）になる。
+//    さらにトラックの getSettings().width/height も横サイズを返す。
+//    正しい向きは ImageCapture API または screen.orientation で判定する。
+//
+//  対策:
+//    ① MediaStreamTrack.getSettings() の width/height で実動画サイズ取得
+//    ② window.innerWidth < window.innerHeight（縦持ち）かつ vw > vh（横動画）
+//       → iOSが時計回り90度で送っていると判断して回転補正
+//    ③ それ以外は回転なしで処理（PC・Android・横持ちiOS）
 // ============================================================
 function capture() {
   var vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return null;
 
-  // iOSは縦持ちでも横動画(vw>vh)を返す場合がある
-  var rotated = (vw > vh);
+  // ---- 回転判定 ----
+  // 画面が縦（portrait）かつ動画が横（landscape）の場合だけ回転補正する
+  var screenPortrait = window.innerHeight > window.innerWidth;
+  var videoLandscape = vw > vh;
+  // iOS縦持ち = portrait && landscape動画
+  var needRotate = screenPortrait && videoLandscape;
 
-  // CSS表示サイズ
+  // ---- object-fit:cover のスケール・オフセット計算 ----
   var vrect = video.getBoundingClientRect();
   var dispW = vrect.width, dispH = vrect.height;
 
-  // object-fit:cover のスケール・オフセット
-  // 回転している場合、論理的な縦横を入れ替えて計算
-  var logW = rotated ? vh : vw;
-  var logH = rotated ? vw : vh;
+  // 回転補正がある場合は「論理的な縦横」を入れ替える
+  var logW = needRotate ? vh : vw;  // 正立後の幅
+  var logH = needRotate ? vw : vh;  // 正立後の高さ
+
   var scale = Math.max(dispW / logW, dispH / logH);
   var overX = (logW * scale - dispW) / 2;
   var overY = (logH * scale - dispH) / 2;
 
-  // ガイド枠のCSS座標 → 論理ピクセル座標
-  var gr   = guide.getBoundingClientRect();
-  var glx  = (gr.left - vrect.left + overX) / scale;
-  var gly  = (gr.top  - vrect.top  + overY) / scale;
-  var glw  = gr.width  / scale;
-  var glh  = gr.height / scale;
+  // ガイド枠のCSS座標 → 論理ピクセル座標（正立ベース）
+  var gr  = guide.getBoundingClientRect();
+  var glx = (gr.left - vrect.left + overX) / scale;
+  var gly = (gr.top  - vrect.top  + overY) / scale;
+  var glw = gr.width  / scale;
+  var glh = gr.height / scale;
 
-  // 論理ピクセル → 動画ピクセル（回転補正）
+  // 論理ピクセル → 動画ピクセル（回転補正逆変換）
   var sx, sy, sw, sh;
-  if (rotated) {
-    // iOSの横動画は時計回り90度で縦に見える
-    // 時計回り90度の逆変換：論理(x,y,w,h) → 動画(logH-y-h, x, h, w)
-    sx = Math.round(logH - gly - glh);
-    sy = Math.round(glx);
+  if (needRotate) {
+    // 時計回り90度で届いているので逆変換（反時計回り90度）
+    // 論理(glx, gly, glw, glh) → 動画座標
+    // 時計90度の逆: 動画x = gly, 動画y = logW - glx - glw
+    sx = Math.round(gly);
+    sy = Math.round(logW - glx - glw);
     sw = Math.round(glh);
     sh = Math.round(glw);
   } else {
@@ -306,23 +394,25 @@ function capture() {
     sw = Math.round(glw); sh = Math.round(glh);
   }
 
-  // クランプ
+  // クランプ（範囲外防止）
   sx = Math.max(0, Math.min(vw - 1, sx));
   sy = Math.max(0, Math.min(vh - 1, sy));
   sw = Math.max(1, Math.min(vw - sx, sw));
   sh = Math.max(1, Math.min(vh - sy, sh));
 
-  // 切り出し（回転時は正立に戻す）
+  // ---- Canvas に切り出し（回転補正して正立画像を生成） ----
   var crop = document.createElement("canvas");
-  if (rotated) {
-    crop.width  = sh;  // 時計回り90度後：元sh→width, sw→height
+  if (needRotate) {
+    // 正立後サイズ：切り出し(sw×sh)を時計回り90度回転 → 幅sh, 高さsw
+    crop.width  = sh;
     crop.height = sw;
     var rc = crop.getContext("2d");
     rc.translate(sh, 0);
     rc.rotate(Math.PI / 2);
     rc.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
   } else {
-    crop.width = sw; crop.height = sh;
+    crop.width  = sw;
+    crop.height = sh;
     crop.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
   }
 
@@ -344,10 +434,13 @@ function capture() {
   dbg.getContext("2d").drawImage(out, 0, 0);
 
   var b64 = out.toDataURL("image/jpeg", 0.85).replace(/^data:image\/jpeg;base64,/, "");
-  setStatus("送信: " + out.width + "x" + out.height
+  setStatus(
+    "送信: " + out.width + "x" + out.height
     + " 元:" + vw + "x" + vh
-    + (rotated ? " [回転]" : "")
-    + " b64:" + b64.length, "info");
+    + (needRotate ? " [回転補正]" : " [回転なし]")
+    + " b64:" + b64.length,
+    "info"
+  );
   return b64;
 }
 
@@ -409,12 +502,30 @@ function onPartBlur() {
 //  登録
 // ============================================================
 function doSave() {
-  var qty = document.getElementById("qty").value.trim();
-  if (!currentPart) { setStatus("図番が未入力です", "err"); return; }
-  if (!qty || isNaN(qty) || Number(qty) < 0) { setStatus("正しい数量を入力してください", "err"); return; }
+  var qty    = document.getElementById("qty").value.trim();
+  var dept   = document.getElementById("selDept").value;
+  var person = document.getElementById("selPerson").value;
+  var stock  = document.getElementById("selStock").value;
+
+  if (!currentPart)                              { setStatus("図番が未入力です", "err"); return; }
+  if (!qty || isNaN(qty) || Number(qty) < 0)    { setStatus("正しい数量を入力してください", "err"); return; }
+
   btnSave.disabled = true;
   setStatus("登録中...", "info");
-  fetch(API, { method: "POST", body: JSON.stringify({ type: "save", part: currentPart, name: currentName, size: currentSize, qty: qty }) })
+
+  fetch(API, {
+    method: "POST",
+    body: JSON.stringify({
+      type:   "save",
+      part:   currentPart,
+      name:   currentName,
+      size:   currentSize,
+      qty:    qty,
+      dept:   dept,
+      person: person,
+      stock:  stock
+    })
+  })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
